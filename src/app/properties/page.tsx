@@ -9,19 +9,15 @@ import {
   Filter, 
   MapPin, 
   Star, 
-  Users, 
-  Eye,
-  Edit,
   MoreHorizontal,
   Building,
   Home,
-  House,
-  Trees
+  Trees,
+  Eye,
+  Edit
 } from 'lucide-react'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
-// Mock data with more detailed information
 const properties = [
   {
     property_id: 1,
@@ -35,7 +31,6 @@ const properties = [
     check_in_time: '14:00',
     check_out_time: '12:00',
     address: '123 Beach Road, Seminyak',
-    image_urls: ['/api/placeholder/400/250'],
     total_rooms: 24,
     available_rooms: 8,
     base_price: 250,
@@ -43,7 +38,6 @@ const properties = [
     dynamic_pricing_enabled: true,
     status: 'Active',
     owner_name: 'John Resort Owner',
-    created_date: '2024-01-15',
     amenities: ['Pool', 'Spa', 'Restaurant', 'Beachfront', 'Free WiFi']
   },
   {
@@ -58,7 +52,6 @@ const properties = [
     check_in_time: '15:00',
     check_out_time: '11:00',
     address: '456 Mountain Street, Ubud',
-    image_urls: ['/api/placeholder/400/250'],
     total_rooms: 1,
     available_rooms: 1,
     base_price: 180,
@@ -66,13 +59,12 @@ const properties = [
     dynamic_pricing_enabled: false,
     status: 'Active',
     owner_name: 'Sarah Villa Owner',
-    created_date: '2024-02-10',
     amenities: ['Private Pool', 'Mountain View', 'Kitchen', 'Garden']
   },
   {
     property_id: 3,
     name: 'City Center Apartment',
-    type: 'Apartment',
+    type: 'Home',
     city: 'Jakarta',
     country: 'Indonesia',
     description: 'Modern apartment in the heart of the city with easy access to business districts.',
@@ -81,7 +73,6 @@ const properties = [
     check_in_time: '14:00',
     check_out_time: '12:00',
     address: '789 Business District, Jakarta',
-    image_urls: ['/api/placeholder/400/250'],
     total_rooms: 3,
     available_rooms: 0,
     base_price: 120,
@@ -89,7 +80,6 @@ const properties = [
     dynamic_pricing_enabled: true,
     status: 'Maintenance',
     owner_name: 'Mike Apartment Owner',
-    created_date: '2024-03-01',
     amenities: ['City View', 'Gym', 'Parking', 'Concierge']
   },
   {
@@ -104,7 +94,6 @@ const properties = [
     check_in_time: '16:00',
     check_out_time: '10:00',
     address: '321 Forest Lane, Bandung',
-    image_urls: ['/api/placeholder/400/250'],
     total_rooms: 2,
     available_rooms: 2,
     base_price: 90,
@@ -112,17 +101,8 @@ const properties = [
     dynamic_pricing_enabled: false,
     status: 'Active',
     owner_name: 'David Cabin Owner',
-    created_date: '2024-01-28',
     amenities: ['Forest View', 'Fireplace', 'Hiking', 'Nature']
   }
-]
-
-const propertyTypes = [
-  { value: 'all', label: 'All Types', icon: Building },
-  { value: 'hotel', label: 'Hotels', icon: Building },
-  { value: 'villa', label: 'Villas', icon: Home },
-  { value: 'apartment', label: 'Apartments', icon: House },
-  { value: 'cabin', label: 'Cabins', icon: Trees }
 ]
 
 const statusVariants = {
@@ -135,7 +115,6 @@ const statusVariants = {
 const typeVariants = {
   Hotel: 'default',
   Villa: 'secondary',
-  Apartment: 'outline',
   Cabin: 'destructive'
 } as const
 
@@ -146,7 +125,7 @@ export default function PropertiesPage() {
         {/* Header Section */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold">Properties Management</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Properties Management</h1>
             <p className="text-muted-foreground mt-1">
               Manage hotels, villas, apartments, and other properties
             </p>
@@ -157,59 +136,7 @@ export default function PropertiesPage() {
           </Button>
         </div>
 
-        {/* Stats Overview */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Properties</CardTitle>
-              <Building className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">24</div>
-              <p className="text-xs text-muted-foreground">
-                +2 from last month
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Occupancy Rate</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">78%</div>
-              <p className="text-xs text-muted-foreground">
-                +5% from last month
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Avg. Rating</CardTitle>
-              <Star className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">4.7</div>
-              <p className="text-xs text-muted-foreground">
-                284 total reviews
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Revenue</CardTitle>
-              <Eye className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">$45.2K</div>
-              <p className="text-xs text-muted-foreground">
-                +18% from last month
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Filters and Search */}
+        {/* Search and Filters */}
         <Card>
           <CardHeader>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -236,53 +163,22 @@ export default function PropertiesPage() {
           </CardHeader>
         </Card>
 
-        {/* Property Type Tabs */}
-        <Tabs defaultValue="all" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-5 lg:w-auto">
-            {propertyTypes.map((type) => {
-              const Icon = type.icon
-              return (
-                <TabsTrigger key={type.value} value={type.value} className="flex items-center gap-2">
-                  <Icon className="h-4 w-4" />
-                  <span className="hidden sm:inline">{type.label}</span>
-                </TabsTrigger>
-              )
-            })}
-          </TabsList>
-
-          <TabsContent value="all" className="space-y-6">
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {properties.map((property) => (
-                <PropertyCard key={property.property_id} property={property} />
-              ))}
-            </div>
-          </TabsContent>
-
-          {/* You can add more tab content for specific property types */}
-          <TabsContent value="hotel">
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {properties.filter(p => p.type.toLowerCase() === 'hotel').map((property) => (
-                <PropertyCard key={property.property_id} property={property} />
-              ))}
-            </div>
-          </TabsContent>
-        </Tabs>
+        {/* Properties Grid */}
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {properties.map((property) => (
+            <PropertyCard key={property.property_id} property={property} />
+          ))}
+        </div>
       </div>
     </DashboardLayout>
   )
 }
 
-// Property Card Component
 function PropertyCard({ property }: { property: any }) {
   return (
-    <Card className="overflow-hidden hover:shadow-lg transition-all duration-300">
+    <Card className="overflow-hidden hover:shadow-lg transition-all duration-300 border border-gray-200">
       {/* Property Image */}
-      <div className="aspect-video relative bg-muted">
-        <img
-          src={property.image_urls[0] || '/api/placeholder/400/250'}
-          alt={property.name}
-          className="object-cover w-full h-full"
-        />
+      <div className="aspect-video relative bg-gradient-to-br from-blue-400 to-purple-500">
         <div className="absolute top-3 left-3 flex gap-2">
           <Badge variant={statusVariants[property.status as keyof typeof statusVariants]}>
             {property.status}
@@ -294,7 +190,7 @@ function PropertyCard({ property }: { property: any }) {
         <div className="absolute top-3 right-3">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="secondary" size="sm" className="h-8 w-8 p-0">
+              <Button variant="secondary" size="sm" className="h-8 w-8 p-0 bg-white/90 hover:bg-white">
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -313,21 +209,19 @@ function PropertyCard({ property }: { property: any }) {
       </div>
 
       <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
-          <div className="space-y-1">
-            <CardTitle className="text-lg leading-tight">{property.name}</CardTitle>
-            <div className="flex items-center gap-1 text-sm text-muted-foreground">
-              <MapPin className="h-3 w-3" />
-              <span>{property.city}, {property.country}</span>
-            </div>
+        <div className="space-y-2">
+          <CardTitle className="text-lg leading-tight">{property.name}</CardTitle>
+          <div className="flex items-center gap-1 text-sm text-muted-foreground">
+            <MapPin className="h-3 w-3" />
+            <span>{property.city}, {property.country}</span>
           </div>
         </div>
 
         {/* Rating */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 mt-2">
           <div className="flex items-center gap-1">
             <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-            <span className="font-semibold">{property.rating}</span>
+            <span className="font-semibold text-foreground">{property.rating}</span>
           </div>
           <span className="text-sm text-muted-foreground">
             ({property.total_reviews} reviews)
@@ -336,12 +230,13 @@ function PropertyCard({ property }: { property: any }) {
       </CardHeader>
 
       <CardContent className="pb-3">
-        <p className="text-sm text-muted-foreground line-clamp-2">
+        {/* Description */}
+        <p className="text-sm text-muted-foreground line-clamp-2 mb-4">
           {property.description}
         </p>
 
         {/* Amenities */}
-        <div className="flex flex-wrap gap-1 mt-3">
+        <div className="flex flex-wrap gap-1 mb-4">
           {property.amenities.slice(0, 3).map((amenity: string) => (
             <Badge key={amenity} variant="outline" className="text-xs">
               {amenity}
@@ -354,33 +249,33 @@ function PropertyCard({ property }: { property: any }) {
           )}
         </div>
 
-        {/* Property Details */}
-        <div className="grid grid-cols-2 gap-4 mt-4 text-sm">
+        {/* Property Details Grid */}
+        <div className="grid grid-cols-2 gap-4 text-sm">
           <div className="space-y-1">
-            <div className="text-muted-foreground">Rooms</div>
-            <div className="font-medium">
+            <div className="text-muted-foreground text-xs font-medium">Rooms</div>
+            <div className="font-semibold text-foreground">
               {property.available_rooms}/{property.total_rooms} available
             </div>
           </div>
           <div className="space-y-1">
-            <div className="text-muted-foreground">Price</div>
-            <div className="font-medium">
+            <div className="text-muted-foreground text-xs font-medium">Price</div>
+            <div className="font-semibold text-foreground">
               {property.currency} {property.base_price}/night
             </div>
           </div>
           <div className="space-y-1">
-            <div className="text-muted-foreground">Check-in</div>
-            <div className="font-medium">{property.check_in_time}</div>
+            <div className="text-muted-foreground text-xs font-medium">Check-in</div>
+            <div className="font-semibold text-foreground">{property.check_in_time}</div>
           </div>
           <div className="space-y-1">
-            <div className="text-muted-foreground">Check-out</div>
-            <div className="font-medium">{property.check_out_time}</div>
+            <div className="text-muted-foreground text-xs font-medium">Check-out</div>
+            <div className="font-semibold text-foreground">{property.check_out_time}</div>
           </div>
         </div>
       </CardContent>
 
-      <CardFooter className="flex justify-between pt-3 border-t">
-        <div className="text-xs text-muted-foreground">
+      <CardFooter className="grid grid-rows-2 gap-4 pt-3 border-t">
+        <div className="flex justify-between text-xs text-muted-foreground">
           Owner: {property.owner_name}
         </div>
         <div className="flex items-center gap-2">
