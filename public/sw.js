@@ -5,7 +5,7 @@ const urlsToCache = [
   '/auth/login',
   '/users',
   '/properties',
-  '/booking',
+  '/bookings',
   '/manifest.json',
   '/icon-192x192.png',
   '/icon-512x512.png',
@@ -46,8 +46,20 @@ self.addEventListener('activate', (event) => {
 
 // Fetch event - serve from cache, fallback to network
 self.addEventListener('fetch', (event) => {
+  const request = event.request;
+
+  // Skip caching for non-GET requests (POST, PUT, DELETE, etc.)
+  if (request.method !== 'GET') {
+    return;
+  }
+
+  // Skip caching for GraphQL requests and API calls
+  if (request.url.includes('/api/') || request.url.includes('/graphql')) {
+    return;
+  }
+
   event.respondWith(
-    caches.match(event.request)
+    caches.match(request)
       .then((response) => {
         // Cache hit - return response
         if (response) {
@@ -55,7 +67,7 @@ self.addEventListener('fetch', (event) => {
         }
 
         // Clone the request
-        const fetchRequest = event.request.clone();
+        const fetchRequest = request.clone();
 
         return fetch(fetchRequest).then((response) => {
           // Check if valid response
@@ -63,19 +75,22 @@ self.addEventListener('fetch', (event) => {
             return response;
           }
 
-          // Clone the response
-          const responseToCache = response.clone();
+          // Only cache GET requests
+          if (request.method === 'GET') {
+            // Clone the response
+            const responseToCache = response.clone();
 
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
-          });
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(request, responseToCache);
+            });
+          }
 
           return response;
         });
       })
       .catch(() => {
         // Offline fallback
-        if (event.request.destination === 'document') {
+        if (request.destination === 'document') {
           return caches.match('/');
         }
       })

@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from 'next/font/google'
-import { PWAInstallPrompt } from '@/components/pwa-install-prompt'
-import { ServiceWorkerRegister } from '@/components/service-worker-register'
+import { ClientLayout } from '@/components/layout/client-layout'
+import { I18nProvider } from '@/contexts/i18n-context'
 
 const inter = Inter({ subsets: ['latin'] })
 import "./globals.css";
@@ -58,11 +58,11 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icon-192x192.png" />
       </head>
       <body className={inter.className}>
-        <div className="min-h-screen bg-background">
-          {children}
-        </div>
-        <PWAInstallPrompt />
-        <ServiceWorkerRegister />
+        <I18nProvider>
+          <ClientLayout requiredRole="owner">
+            {children}
+          </ClientLayout>
+        </I18nProvider>
       </body>
     </html>
   )

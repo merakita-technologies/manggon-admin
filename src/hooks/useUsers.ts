@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { User, SearchFilters } from '@/types/user'
-import { apiClient } from '@/lib/api'
+import { graphqlClient } from '@/lib/graphql'
 
 export function useUsers() {
   const [users, setUsers] = useState<User[]>([])
@@ -12,26 +12,32 @@ export function useUsers() {
     setError(null)
     
     try {
-      const response = await apiClient.getUsers({
-        page: filters?.page || 1,
-        limit: filters?.limit || 10,
-        search: filters?.search,
-      })
+      // Get users from GraphQL
+      // Note: Backend might need a dedicated users query
+      // For now, we get users from properties owners and bookings
+      const usersData = await graphqlClient.getUsers()
       
-      // Backend returns { data: User[], meta: {...} }
-      // Handle both direct array and paginated response
-      const usersData = Array.isArray(response) ? response : (response.data || [])
+      // Apply search filter if provided
+      let filteredUsers = usersData
+      if (filters?.search) {
+        const searchLower = filters.search.toLowerCase()
+        filteredUsers = usersData.filter((user: any) =>
+          user.email?.toLowerCase().includes(searchLower) ||
+          user.fullName?.toLowerCase().includes(searchLower) ||
+          user.phoneNumber?.includes(searchLower)
+        )
+      }
       
-      // Transform backend response to match frontend User type
-      const transformedUsers = usersData.map((user: any) => ({
-        user_id: parseInt(user.id) || 0,
+      // Transform GraphQL response to match frontend User type
+      const transformedUsers = filteredUsers.map((user: any, index: number) => ({
+        user_id: parseInt(user.id?.replace(/\D/g, '') || `${index}`) || index + 1,
         username: user.email?.split('@')[0] || 'user',
         email: user.email || '',
-        full_name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Unknown User',
+        full_name: user.fullName || 'Unknown User',
         phone_number: user.phoneNumber || '-',
-        registration_date: user.createdAt || new Date().toISOString(),
-        last_login: user.lastLogin || user.updatedAt || new Date().toISOString(),
-        status: user.isActive ? 'active' : 'inactive',
+        registration_date: new Date().toISOString(), // GraphQL schema doesn't have createdAt for users yet
+        last_login: new Date().toISOString(), // GraphQL schema doesn't have lastLogin yet
+        status: 'active' as const, // Default to active
         loyalty_points: user.loyaltyPoints || 0,
       }))
       
@@ -47,8 +53,11 @@ export function useUsers() {
 
   const deleteUser = useCallback(async (userId: number) => {
     try {
-      await apiClient.deleteUser(userId.toString())
+      // GraphQL mutation for delete user would need to be added to backend
+      // For now, just remove from local state
       setUsers(prev => prev.filter(user => user.user_id !== userId))
+      // TODO: Implement delete user mutation in GraphQL
+      throw new Error('Delete user mutation not yet implemented in GraphQL backend')
     } catch (err: any) {
       setError(err.message || 'Failed to delete user')
       console.error('Error deleting user:', err)

@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Mail, Lock, Eye, EyeOff, User, Phone } from 'lucide-react'
+import { Mail, Lock, Eye, EyeOff, User, Phone, CheckCircle, AlertCircle, RefreshCw } from 'lucide-react'
+import { graphqlClient } from '@/lib/graphql'
 
 export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false)
@@ -19,20 +20,94 @@ export default function RegisterPage() {
     confirmPassword: '',
   })
   const [isLoading, setIsLoading] = useState(false)
+  const [isRegistered, setIsRegistered] = useState(false)
+  const [registeredEmail, setRegisteredEmail] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [resendCooldown, setResendCooldown] = useState(0)
+  const [isResending, setIsResending] = useState(false)
+  const [resendCount, setResendCount] = useState(0)
+
+  // Timer untuk resend cooldown
+  useEffect(() => {
+    if (resendCooldown > 0) {
+      const timer = setTimeout(() => {
+        setResendCooldown(resendCooldown - 1)
+      }, 1000)
+      return () => clearTimeout(timer)
+    }
+  }, [resendCooldown])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setError(null)
     
     if (formData.password !== formData.confirmPassword) {
-      alert('Password tidak cocok')
+      setError('Password tidak cocok')
+      return
+    }
+
+    if (formData.password.length < 8) {
+      setError('Password minimal 8 karakter')
       return
     }
 
     setIsLoading(true)
-    // TODO: Implement register logic
-    setTimeout(() => {
+    try {
+      const result = await graphqlClient.createUser({
+        email: formData.email,
+        password: formData.password,
+        fullName: formData.name.trim(),
+        phoneNumber: formData.phone,
+        role: 'owner', // Default role untuk pemilik yang register dari admin app
+      })
+      
+      if (result.success) {
+        setIsRegistered(true)
+        setRegisteredEmail(formData.email)
+        // Set initial cooldown: 30 detik untuk resend pertama
+        setResendCooldown(30)
+        setResendCount(0)
+      } else {
+        setError(result.message || 'Registrasi gagal')
+      }
+    } catch (error: any) {
+      setError(error.message || 'Registrasi gagal')
+    } finally {
       setIsLoading(false)
-    }, 1000)
+    }
+  }
+
+  const handleResendVerification = async () => {
+    if (resendCooldown > 0) return
+    
+    setIsResending(true)
+    setError(null)
+    
+    try {
+      const result = await graphqlClient.resendVerificationEmail(registeredEmail)
+      
+      if (result.success) {
+        const newCount = resendCount + 1
+        setResendCount(newCount)
+        // Set cooldown: 30 detik untuk pertama kali, 1 menit (60 detik) untuk berikutnya
+        setResendCooldown(newCount === 0 ? 30 : 60)
+      } else {
+        setError(result.message || 'Gagal mengirim email verifikasi')
+      }
+    } catch (err: any) {
+      setError(err.message || 'Terjadi kesalahan saat mengirim email verifikasi')
+    } finally {
+      setIsResending(false)
+    }
+  }
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    if (mins > 0) {
+      return `${mins}:${secs.toString().padStart(2, '0')}`
+    }
+    return `${secs}s`
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -40,6 +115,108 @@ export default function RegisterPage() {
       ...formData,
       [e.target.name]: e.target.value,
     })
+  }
+
+  // Show success state after registration
+  if (isRegistered) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-secondary/5 p-4">
+        <div className="w-full max-w-md">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center mb-4">
+              <Image
+                src="/logo1.png"
+                alt="Manggon Logo"
+                width={64}
+                height={64}
+                className="w-16 h-16 object-contain"
+                priority
+              />
+            </div>
+            <h1 className="text-3xl font-bold text-foreground mb-2">Manggon Admin</h1>
+          </div>
+
+          <Card className="shadow-floating border-0">
+            <CardHeader className="space-y-1 pb-4">
+              <div className="flex items-center justify-center mb-4">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10">
+                  <CheckCircle className="w-8 h-8 text-primary" />
+                </div>
+              </div>
+              <CardTitle className="text-2xl font-semibold text-center">Registrasi Berhasil!</CardTitle>
+              <CardDescription className="text-center">
+                Akun Anda telah berhasil dibuat
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Verification Notification */}
+              <div className="p-4 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <Mail className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                      Email Verifikasi Telah Dikirim
+                    </p>
+                    <p className="text-sm text-blue-700 dark:text-blue-300">
+                      Kami telah mengirimkan link verifikasi ke{' '}
+                      <span className="font-semibold">{registeredEmail}</span>
+                    </p>
+                    <p className="text-xs text-blue-600 dark:text-blue-400">
+                      Silakan periksa inbox Anda (dan folder spam) untuk verifikasi akun.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Resend Button */}
+              <div className="space-y-2">
+                {error && (
+                  <div className="flex items-center gap-2 p-3 text-sm text-destructive bg-destructive/10 rounded-md border border-destructive/20">
+                    <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                    <span>{error}</span>
+                  </div>
+                )}
+
+                <Button
+                  onClick={handleResendVerification}
+                  disabled={resendCooldown > 0 || isResending}
+                  variant="outline"
+                  className="w-full"
+                >
+                  {isResending ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                      Mengirim...
+                    </>
+                  ) : resendCooldown > 0 ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Kirim Ulang ({formatTime(resendCooldown)})
+                    </>
+                  ) : (
+                    <>
+                      <Mail className="h-4 w-4 mr-2" />
+                      Kirim Ulang Email Verifikasi
+                    </>
+                  )}
+                </Button>
+                {resendCount > 0 && (
+                  <p className="text-xs text-center text-muted-foreground">
+                    Email telah dikirim {resendCount} kali
+                  </p>
+                )}
+              </div>
+
+              <div className="pt-4 border-t">
+                <Button asChild className="w-full">
+                  <Link href="/auth/login">Kembali ke Login</Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -206,6 +383,13 @@ export default function RegisterPage() {
                   </Link>
                 </label>
               </div>
+
+              {error && (
+                <div className="flex items-center gap-2 p-3 text-sm text-destructive bg-destructive/10 rounded-md border border-destructive/20">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
 
               <Button
                 type="submit"

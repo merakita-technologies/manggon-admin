@@ -1,3 +1,7 @@
+// Legacy REST API client - kept for backward compatibility
+// New code should use graphqlClient from '@/lib/graphql'
+import { graphqlClient } from './graphql'
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3010/api/v1';
 
 class ApiClient {
@@ -14,6 +18,7 @@ class ApiClient {
 
   setToken(token: string | null) {
     this.token = token;
+    graphqlClient.setToken(token);
     if (typeof window !== 'undefined') {
       if (token) {
         localStorage.setItem('auth_token', token);
@@ -74,20 +79,13 @@ class ApiClient {
     return this.request<T>(endpoint, { method: 'DELETE' });
   }
 
-  // Auth methods
+  // Auth methods - now using GraphQL
   async login(email: string, password: string) {
-    const response = await this.post<{
-      access_token: string;
-      user: {
-        id: string;
-        email: string;
-        firstName: string;
-        lastName: string;
-      };
-    }>('/auth/login', { email, password });
-
-    this.setToken(response.access_token);
-    return response;
+    const result = await graphqlClient.login(email, password);
+    return {
+      access_token: result.token,
+      user: result.user,
+    };
   }
 
   async register(data: {
@@ -95,36 +93,70 @@ class ApiClient {
     password: string;
     firstName: string;
     lastName: string;
+    phoneNumber?: string;
+    role?: 'admin' | 'owner' | 'user';
   }) {
-    const response = await this.post('/auth/register', data);
-    return response;
+    const result = await graphqlClient.createUser({
+      email: data.email,
+      password: data.password,
+      fullName: `${data.firstName} ${data.lastName}`,
+      phoneNumber: data.phoneNumber || '',
+      role: data.role,
+    });
+    return {
+      success: result.success,
+      message: result.message,
+      user: result.user,
+    };
   }
 
   logout() {
     this.setToken(null);
+    graphqlClient.logout();
   }
 
-  // User methods
+  // User methods - now using GraphQL
   async getUsers(params?: {
     page?: number;
     limit?: number;
     search?: string;
   }) {
-    const queryParams = new URLSearchParams();
-    if (params?.page) queryParams.append('page', params.page.toString());
-    if (params?.limit) queryParams.append('limit', params.limit.toString());
-    if (params?.search) queryParams.append('search', params.search);
-
-    const query = queryParams.toString();
-    return this.get(`/users${query ? `?${query}` : ''}`);
+    const users = await graphqlClient.getUsers();
+    // Apply search filter if provided
+    if (params?.search) {
+      const searchLower = params.search.toLowerCase();
+      return users.filter((user: any) =>
+        user.email?.toLowerCase().includes(searchLower) ||
+        user.fullName?.toLowerCase().includes(searchLower) ||
+        user.phoneNumber?.includes(searchLower)
+      );
+    }
+    return users;
   }
 
   async getUser(id: string) {
-    return this.get(`/users/${id}`);
+    const users = await graphqlClient.getUsers();
+    return users.find((user: any) => user.id === id);
   }
 
   async deleteUser(id: string) {
-    return this.delete(`/users/${id}`);
+    // GraphQL mutation for delete user would need to be added to backend
+    // For now, this is a placeholder
+    throw new Error('Delete user mutation not yet implemented in GraphQL');
+  }
+
+  // Property methods - now using GraphQL
+  async getProperties(params?: {
+    city?: string;
+    country?: string;
+    propertyType?: string;
+    search?: string;
+  }) {
+    return graphqlClient.getProperties(params);
+  }
+
+  async getProperty(id: string) {
+    return graphqlClient.getProperty(id);
   }
 }
 

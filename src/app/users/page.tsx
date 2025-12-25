@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import DashboardLayout from '@/components/layout/dashboard-layout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -30,9 +30,16 @@ import { User } from '@/types/user'
 import { formatDate, formatRelativeTime, isCurrentMonth } from '@/lib/date-utils'
 import { mockUsers, statusBadgeVariants } from './constants'
 import { useUsers } from '@/hooks/useUsers'
+import { useI18n } from '@/contexts/i18n-context'
+import { UserFormModal } from '@/components/users/user-form-modal'
+import { ExportButton } from '@/components/ui/export-button'
+import { DateRangePicker } from '@/components/ui/date-range-picker'
 
 export default function UsersPage() {
+  const { t } = useI18n()
   const [searchQuery, setSearchQuery] = useState('')
+  const [filterStartDate, setFilterStartDate] = useState<Date | null>(null)
+  const [filterEndDate, setFilterEndDate] = useState<Date | null>(null)
   const { users: apiUsers, isLoading, error, fetchUsers, deleteUser, setError } = useUsers()
   
   // Use API users if available, otherwise fallback to mock data
@@ -43,18 +50,39 @@ export default function UsersPage() {
     fetchUsers()
   }, [fetchUsers])
 
-  // Filter users based on search query
+  // Filter users based on search query and date range
   const filteredUsers = useMemo(() => {
-    if (!searchQuery.trim()) return allUsers
+    let filtered = allUsers
 
-    const query = searchQuery.toLowerCase()
-    return allUsers.filter(user =>
-      user.username.toLowerCase().includes(query) ||
-      user.email.toLowerCase().includes(query) ||
-      user.full_name.toLowerCase().includes(query) ||
-      user.phone_number.includes(query)
-    )
-  }, [searchQuery, allUsers])
+    // Search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase()
+      filtered = filtered.filter(user =>
+        user.username.toLowerCase().includes(query) ||
+        user.email.toLowerCase().includes(query) ||
+        user.full_name.toLowerCase().includes(query) ||
+        user.phone_number.includes(query)
+      )
+    }
+
+    // Date range filter (registration date)
+    if (filterStartDate) {
+      filtered = filtered.filter(user => {
+        const regDate = user.registration_date ? new Date(user.registration_date) : null
+        if (!regDate) return true
+        return regDate >= filterStartDate
+      })
+    }
+    if (filterEndDate) {
+      filtered = filtered.filter(user => {
+        const regDate = user.registration_date ? new Date(user.registration_date) : null
+        if (!regDate) return true
+        return regDate <= filterEndDate
+      })
+    }
+
+    return filtered
+  }, [searchQuery, allUsers, filterStartDate, filterEndDate])
 
   // Stats calculation
   const stats = useMemo(() => {
@@ -68,31 +96,40 @@ export default function UsersPage() {
     return { totalUsers, activeUsers, newThisMonth, avgLoyaltyPoints }
   }, [allUsers])
 
+  const [isUserModalOpen, setIsUserModalOpen] = useState(false)
+  const [selectedUser, setSelectedUser] = useState<User | null>(null)
+
   // Handler functions
   const handleEditUser = (user: User) => {
-    console.log('Edit user:', user)
-    // In real app: router.push(`/users/${user.user_id}/edit`)
+    setSelectedUser(user)
+    setIsUserModalOpen(true)
   }
 
   const handleViewDetails = (user: User) => {
-    console.log('View user details:', user)
-    // In real app: router.push(`/users/${user.user_id}`)
+    // For now, open edit modal. Can be enhanced with detail view later
+    handleEditUser(user)
   }
 
   const handleDeleteUser = async (user: User) => {
-    if (confirm(`Are you sure you want to delete user ${user.full_name}?`)) {
+    if (confirm(t('users.deleteConfirm', { name: user.full_name }))) {
       try {
         await deleteUser(user.user_id)
       } catch (err) {
         console.error('Error deleting user:', err)
-        alert('Failed to delete user. Please try again.')
+        alert(t('users.deleteError'))
       }
     }
   }
 
   const handleAddUser = () => {
-    console.log('Add new user')
-    // In real app: router.push('/users/new')
+    setSelectedUser(null)
+    setIsUserModalOpen(true)
+  }
+
+  const handleUserModalSuccess = () => {
+    fetchUsers()
+    setIsUserModalOpen(false)
+    setSelectedUser(null)
   }
 
   const handleSearch = (e: React.FormEvent) => {
@@ -106,11 +143,11 @@ export default function UsersPage() {
         <div className="flex items-center justify-center min-h-[400px]">
           <Card className="w-full max-w-md">
             <CardHeader>
-              <CardTitle className="text-destructive">Error Loading Users</CardTitle>
+              <CardTitle className="text-destructive">{t('users.errorLoadingUsers')}</CardTitle>
               <CardDescription>{error}</CardDescription>
             </CardHeader>
             <CardContent>
-              <Button onClick={() => setError(null)}>Try Again</Button>
+              <Button onClick={() => setError(null)}>{t('common.retry')}</Button>
             </CardContent>
           </Card>
         </div>
@@ -124,18 +161,18 @@ export default function UsersPage() {
         {/* Header Section */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Users Management</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{t('users.management')}</h1>
             <p className="text-muted-foreground mt-1.5">
-              Manage system users and their data
+              {t('users.managementDescription')}
             </p>
           </div>
           <Button 
             onClick={handleAddUser} 
             className="sm:w-auto w-full"
-            aria-label="Add new user"
+            aria-label={t('users.addUser')}
           >
             <Plus className="h-4 w-4 mr-2" />
-            Add User
+            {t('users.addUser')}
           </Button>
         </div>
 
@@ -143,52 +180,52 @@ export default function UsersPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Users</CardTitle>
+              <CardTitle className="text-sm font-medium">{t('users.totalUsers')}</CardTitle>
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.totalUsers}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                +{stats.newThisMonth} this month
+                +{stats.newThisMonth} {t('users.newThisMonth')}
               </p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Active Users</CardTitle>
+              <CardTitle className="text-sm font-medium">{t('users.activeUsers')}</CardTitle>
               <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.activeUsers}</div>
               <p className="text-xs text-muted-foreground mt-1">
                 {stats.totalUsers > 0 
-                  ? `${Math.round((stats.activeUsers / stats.totalUsers) * 100)}% of total`
-                  : 'No users'
+                  ? `${Math.round((stats.activeUsers / stats.totalUsers) * 100)}${t('users.ofTotal')}`
+                  : t('users.noUsersYet')
                 }
               </p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Avg. Loyalty</CardTitle>
+              <CardTitle className="text-sm font-medium">{t('users.avgLoyalty', { defaultValue: 'Avg. Loyalty' })}</CardTitle>
               <Star className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.avgLoyaltyPoints}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                Average points per user
+                {t('users.averagePoints', { defaultValue: 'Average points per user' })}
               </p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">New This Month</CardTitle>
+              <CardTitle className="text-sm font-medium">{t('users.newThisMonthTitle', { defaultValue: 'New This Month' })}</CardTitle>
               <Calendar className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.newThisMonth}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                Recent registrations
+                {t('users.recentRegistrations', { defaultValue: 'Recent registrations' })}
               </p>
             </CardContent>
           </Card>
@@ -199,29 +236,59 @@ export default function UsersPage() {
           <CardHeader>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
-                <CardTitle>User Management</CardTitle>
+                <CardTitle>{t('users.userManagement')}</CardTitle>
                 <CardDescription>
-                  Search, filter, and manage system users
+                  {t('users.searchFilterManage')}
                 </CardDescription>
               </div>
-              <form onSubmit={handleSearch} className="flex items-center gap-2">
-                <div className="relative flex-1 sm:flex-initial">
-                  <Search 
-                    className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" 
-                    aria-hidden="true"
-                  />
-                  <Input
-                    type="search"
-                    placeholder="Search users..."
-                    className="w-full sm:w-[300px] pl-9"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    aria-label="Search users by name, email, username, or phone number"
-                  />
-                </div>
-              </form>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 flex-wrap">
+                <form onSubmit={handleSearch} className="flex items-center gap-2">
+                  <div className="relative flex-1 sm:flex-initial">
+                    <Search 
+                      className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" 
+                      aria-hidden="true"
+                    />
+                    <Input
+                      type="search"
+                      placeholder={t('users.searchPlaceholder')}
+                      className="w-full sm:w-[300px] pl-9"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      aria-label={t('users.searchPlaceholder')}
+                    />
+                  </div>
+                </form>
+                <ExportButton
+                  data={filteredUsers.map(u => ({
+                    id: u.user_id,
+                    username: u.username,
+                    email: u.email,
+                    fullName: u.full_name,
+                    phoneNumber: u.phone_number,
+                    role: u.role,
+                    status: u.status,
+                    loyaltyPoints: u.loyalty_points,
+                    registrationDate: u.registration_date,
+                  }))}
+                  filename="users"
+                  formats={['csv', 'excel', 'pdf']}
+                />
+              </div>
             </div>
           </CardHeader>
+          <CardContent className="pt-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <DateRangePicker
+                startDate={filterStartDate}
+                endDate={filterEndDate}
+                onChange={(start, end) => {
+                  setFilterStartDate(start)
+                  setFilterEndDate(end)
+                }}
+                label={t('users.registrationDate')}
+              />
+            </div>
+          </CardContent>
         </Card>
 
         {/* Users Table */}
@@ -229,12 +296,12 @@ export default function UsersPage() {
           <CardHeader>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
-                <CardTitle>All Users</CardTitle>
+                <CardTitle>{t('users.allUsers')}</CardTitle>
                 <CardDescription>
-                  {filteredUsers.length} user{filteredUsers.length !== 1 ? 's' : ''} found
+                  {t('users.usersFound', { count: filteredUsers.length })}
                   {searchQuery && (
                     <span className="ml-1">
-                      for &quot;<span className="font-medium">{searchQuery}</span>&quot;
+                      {t('users.for')} &quot;<span className="font-medium">{searchQuery}</span>&quot;
                     </span>
                   )}
                 </CardDescription>
@@ -256,13 +323,13 @@ export default function UsersPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="whitespace-nowrap">User</TableHead>
-                        <TableHead className="whitespace-nowrap">Contact</TableHead>
-                        <TableHead className="whitespace-nowrap">Registration</TableHead>
-                        <TableHead className="whitespace-nowrap">Last Login</TableHead>
-                        <TableHead className="whitespace-nowrap text-right">Loyalty Points</TableHead>
-                        <TableHead className="whitespace-nowrap">Status</TableHead>
-                        <TableHead className="whitespace-nowrap w-[80px] text-right">Actions</TableHead>
+                        <TableHead className="whitespace-nowrap">{t('users.user')}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t('users.contact')}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t('users.registration')}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t('users.lastLogin')}</TableHead>
+                        <TableHead className="whitespace-nowrap text-right">{t('users.loyaltyPoints')}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t('users.status')}</TableHead>
+                        <TableHead className="whitespace-nowrap w-[80px] text-right">{t('common.actions')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -283,6 +350,24 @@ export default function UsersPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* User Form Modal */}
+      <UserFormModal
+        open={isUserModalOpen}
+        onOpenChange={setIsUserModalOpen}
+        user={selectedUser ? {
+          id: selectedUser.user_id.toString(),
+          email: selectedUser.email,
+          firstName: selectedUser.full_name.split(' ')[0],
+          lastName: selectedUser.full_name.split(' ').slice(1).join(' '),
+          phoneNumber: selectedUser.phone_number,
+          role: selectedUser.role || 'user',
+          isActive: selectedUser.status === 'active',
+          emailVerified: false, // Default, can be enhanced
+          loyaltyPoints: selectedUser.loyalty_points,
+        } : undefined}
+        onSuccess={handleUserModalSuccess}
+      />
     </DashboardLayout>
   )
 }
@@ -296,6 +381,7 @@ interface UserTableRowProps {
 }
 
 function UserTableRow({ user, onEdit, onViewDetails, onDelete }: UserTableRowProps) {
+  const { t } = useI18n()
   const statusVariant = user.status 
     ? statusBadgeVariants[user.status] 
     : 'secondary'
@@ -331,7 +417,7 @@ function UserTableRow({ user, onEdit, onViewDetails, onDelete }: UserTableRowPro
       </TableCell>
       <TableCell>
         <Badge variant={statusVariant} className="capitalize">
-          {user.status || 'unknown'}
+          {user.status || t('common.unknown')}
         </Badge>
       </TableCell>
       <TableCell className="text-right">
@@ -341,7 +427,7 @@ function UserTableRow({ user, onEdit, onViewDetails, onDelete }: UserTableRowPro
               variant="ghost" 
               size="sm" 
               className="h-8 w-8 p-0"
-              aria-label={`Actions for ${user.full_name}`}
+              aria-label={`${t('common.actions')} ${t('users.for')} ${user.full_name}`}
             >
               <MoreHorizontal className="h-4 w-4" />
             </Button>
@@ -349,11 +435,11 @@ function UserTableRow({ user, onEdit, onViewDetails, onDelete }: UserTableRowPro
           <DropdownMenuContent align="end" className="w-48">
             <DropdownMenuItem onSelect={() => onViewDetails(user)}>
               <Eye className="h-4 w-4 mr-2" />
-              View Details
+              {t('common.view')} {t('common.details')}
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onEdit(user)}>
               <Edit className="h-4 w-4 mr-2" />
-              Edit User
+              {t('users.editUser')}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem 
@@ -361,7 +447,7 @@ function UserTableRow({ user, onEdit, onViewDetails, onDelete }: UserTableRowPro
               variant="destructive"
             >
               <Trash2 className="h-4 w-4 mr-2" />
-              Delete User
+              {t('users.deleteUser')}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -372,11 +458,12 @@ function UserTableRow({ user, onEdit, onViewDetails, onDelete }: UserTableRowPro
 
 // Loading State Component
 function LoadingState() {
+  const { t } = useI18n()
   return (
     <div className="flex items-center justify-center h-64">
       <div className="text-center">
         <div className="animate-spin rounded-full h-10 w-10 border-2 border-primary border-t-transparent mx-auto mb-4"></div>
-        <p className="text-sm text-muted-foreground">Loading users...</p>
+        <p className="text-sm text-muted-foreground">{t('users.loadingUsers')}</p>
       </div>
     </div>
   )
@@ -390,26 +477,27 @@ interface EmptyStateProps {
 }
 
 function EmptyState({ searchQuery, onClearSearch, onAddUser }: EmptyStateProps) {
+  const { t } = useI18n()
   return (
     <div className="flex flex-col items-center justify-center h-64 text-center px-4">
       <Users className="h-12 w-12 text-muted-foreground mb-4" />
       <h3 className="text-lg font-semibold mb-2">
-        {searchQuery ? 'No users found' : 'No users yet'}
+        {searchQuery ? t('users.noUsersFound') : t('users.noUsersYetMessage')}
       </h3>
       <p className="text-muted-foreground mb-6 max-w-sm">
         {searchQuery 
-          ? `No users match your search for "${searchQuery}". Try adjusting your search terms.`
-          : 'Get started by adding your first user to the system.'
+          ? t('users.noUsersMatch', { searchQuery })
+          : t('users.getStarted')
         }
       </p>
       {searchQuery ? (
         <Button variant="outline" onClick={onClearSearch}>
-          Clear Search
+          {t('users.clearSearch')}
         </Button>
       ) : (
         <Button onClick={onAddUser}>
           <Plus className="h-4 w-4 mr-2" />
-          Add User
+          {t('users.addUser')}
         </Button>
       )}
     </div>

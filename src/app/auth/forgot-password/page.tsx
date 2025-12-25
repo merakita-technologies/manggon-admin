@@ -16,11 +16,28 @@ export default function ForgotPasswordPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
-    // TODO: Implement forgot password logic
-    setTimeout(() => {
-      setIsLoading(false)
+    try {
+      // TODO: Implement forgot password GraphQL mutation when backend is ready
+      // For now, we'll use a placeholder that simulates the API call
+      // const { graphqlClient } = await import('@/lib/graphql')
+      // const result = await graphqlClient.forgotPassword(email)
+      
+      // Simulate API call
+      await new Promise(resolve => setTimeout(resolve, 1500))
+      
+      // In real implementation:
+      // if (result.success) {
+      //   setIsSubmitted(true)
+      // } else {
+      //   alert(result.message || 'Failed to send reset email')
+      // }
+      
       setIsSubmitted(true)
-    }, 1000)
+    } catch (error: any) {
+      alert(error.message || 'Failed to send reset email. Please try again.')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   if (isSubmitted) {

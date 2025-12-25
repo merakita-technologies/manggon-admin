@@ -15,24 +15,31 @@ import {
   Home,
   ChevronLeft,
   ChevronRight,
-  X
+  X,
+  ShoppingCart,
+  Package,
+  ShoppingBag
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useEffect, useState } from 'react'
+import { useI18n } from '@/contexts/i18n-context'
 
-const navigation = [
-  { name: 'Dashboard', href: '/', icon: Home },
-  { name: 'Users', href: '/users', icon: Users },
-  { name: 'Properties', href: '/properties', icon: Building },
-  { name: 'Rooms & Units', href: '/rooms', icon: Bed },
-  { name: 'Bookings', href: '/bookings', icon: Calendar },
-  { name: 'Payments', href: '/payments', icon: CreditCard },
-  { name: 'Reviews', href: '/reviews', icon: Star },
-  { name: 'Amenities', href: '/amenities', icon: Wifi },
-  { name: 'Add-ons', href: '/addons', icon: Plus },
-  { name: 'Notifications', href: '/notifications', icon: Bell },
+const getNavigation = (t: (key: string) => string) => [
+  { name: t('dashboard.title'), href: '/', icon: Home, roles: ['admin', 'owner'], key: 'dashboard' },
+  { name: t('users.title'), href: '/users', icon: Users, roles: ['admin'], key: 'users' },
+  { name: t('properties.title'), href: '/properties', icon: Building, roles: ['admin', 'owner'], key: 'properties' },
+  { name: t('rooms.title'), href: '/rooms', icon: Bed, roles: ['admin', 'owner'], key: 'rooms' },
+  { name: t('bookings.title'), href: '/bookings', icon: Calendar, roles: ['admin', 'owner'], key: 'bookings' },
+  { name: t('payments.title'), href: '/payments', icon: CreditCard, roles: ['admin', 'owner'], key: 'payments' },
+  { name: t('reviews.title'), href: '/reviews', icon: Star, roles: ['admin', 'owner'], key: 'reviews' },
+  { name: t('products.title'), href: '/products', icon: Package, roles: ['admin'], key: 'products' },
+  { name: t('marketplace.title'), href: '/marketplace', icon: ShoppingCart, roles: ['owner'], key: 'marketplace' },
+  { name: t('orders.title'), href: '/orders', icon: ShoppingBag, roles: ['owner'], key: 'orders' },
+  { name: t('amenities.title'), href: '/amenities', icon: Wifi, roles: ['admin'], key: 'amenities' },
+  { name: t('addons.title'), href: '/addons', icon: Plus, roles: ['admin'], key: 'addons' },
+  { name: t('notifications.title'), href: '/notifications', icon: Bell, roles: ['admin', 'owner'], key: 'notifications' },
 ]
 
 interface SidebarProps {
@@ -44,7 +51,40 @@ interface SidebarProps {
 
 export function Sidebar({ isCollapsed, setIsCollapsed, isMobileOpen, setIsMobileOpen }: SidebarProps) {
   const pathname = usePathname()
+  const { t } = useI18n()
   const [isMobile, setIsMobile] = useState(false)
+  const [userRole, setUserRole] = useState<string>('user')
+  const [userEmail, setUserEmail] = useState<string>('')
+  const [userName, setUserName] = useState<string>('Admin User')
+  
+  const allNavigation = getNavigation(t)
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const userInfo = localStorage.getItem('user_info')
+      if (userInfo) {
+        try {
+          const user = JSON.parse(userInfo)
+          setUserRole(user.role || 'user')
+          setUserEmail(user.email || 'admin@manggon.com')
+          // Support both fullName (from GraphQL) and firstName/lastName (legacy)
+          setUserName(
+            user.fullName || 
+            `${user.firstName || ''} ${user.lastName || ''}`.trim() || 
+            user.email?.split('@')[0] || 
+            'Admin User'
+          )
+        } catch (e) {
+          console.error('Error parsing user info:', e)
+        }
+      }
+    }
+  }, [])
+
+  // Filter navigation based on user role
+  const navigation = allNavigation.filter(item => 
+    item.roles.includes(userRole) || userRole === 'admin'
+  )
 
   useEffect(() => {
     const checkMobile = () => {
@@ -152,8 +192,8 @@ export function Sidebar({ isCollapsed, setIsCollapsed, isMobileOpen, setIsMobile
               <span className="text-sm font-medium text-sidebar-primary-foreground">A</span>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate text-sidebar-foreground">Admin User</p>
-              <p className="text-xs text-sidebar-foreground/60 truncate">admin@manggon.com</p>
+              <p className="text-sm font-medium truncate text-sidebar-foreground">{userName}</p>
+              <p className="text-xs text-sidebar-foreground/60 truncate">{userEmail}</p>
             </div>
           </div>
         </div>
