@@ -26,7 +26,8 @@ import {
   Calendar as CalendarIcon,
   FileText,
   Receipt,
-  MapPin
+  MapPin,
+  FileCheck
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -209,6 +210,13 @@ const getNavigation = (t: (key: string) => string): NavigationItem[] => [
         icon: MapPin, 
         roles: ['admin'], 
         key: 'location-change-requests' 
+      },
+      { 
+        name: 'Audit Logs', 
+        href: '/audit-logs', 
+        icon: FileCheck, 
+        roles: ['admin'], 
+        key: 'audit-logs' 
       },
     ]
   },
