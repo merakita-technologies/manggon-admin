@@ -1,15 +1,17 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Modal, ModalHeader, ModalContent, ModalFooter, ModalTitle, ModalDescription } from '@/components/ui/modal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Checkbox } from '@/components/ui/checkbox'
 import { graphqlClient } from '@/lib/graphql'
-import { Loader2, AlertCircle, X } from 'lucide-react'
+import { Loader2, AlertCircle, X, Upload } from 'lucide-react'
 import { HourlyRatesManager } from './hourly-rates-manager'
 import { useI18n } from '@/contexts/i18n-context'
+import { BACKEND_BASE_URL } from '@/lib/api-config'
 
 interface RoomFormModalProps {
   open: boolean
@@ -32,10 +34,16 @@ export function RoomFormModal({ open, onOpenChange, room, propertyId, onSuccess 
     basePricePerNight: '',
     description: '',
     images: [] as string[],
+    weekendMultiplier: '',
+    holidayMultiplier: '',
+    weekendMultiplierEnabled: false,
+    holidayMultiplierEnabled: false,
     isActive: true,
     supportsHourlyBooking: false,
   })
   const [imageUrlInput, setImageUrlInput] = useState('')
+  const [uploadingImage, setUploadingImage] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (open) {
@@ -53,6 +61,11 @@ export function RoomFormModal({ open, onOpenChange, room, propertyId, onSuccess 
         basePricePerNight: room.basePricePerNight?.toString() || '',
         description: room.description || '',
         images: room.images || [],
+        weekendMultiplier: room.weekendMultiplier?.toString() || '',
+        holidayMultiplier: room.holidayMultiplier?.toString() || '',
+        // Use enable flags from database, fallback to checking if multiplier exists
+        weekendMultiplierEnabled: room.enableWeekendMultiplier ?? (room.weekendMultiplier != null && room.weekendMultiplier > 0),
+        holidayMultiplierEnabled: room.enableHolidayMultiplier ?? (room.holidayMultiplier != null && room.holidayMultiplier > 0),
         isActive: room.isActive !== undefined ? room.isActive : true,
         supportsHourlyBooking: room.supportsHourlyBooking || false,
       })
@@ -65,6 +78,10 @@ export function RoomFormModal({ open, onOpenChange, room, propertyId, onSuccess 
         basePricePerNight: '',
         description: '',
         images: [],
+        weekendMultiplier: '',
+        holidayMultiplier: '',
+        weekendMultiplierEnabled: false,
+        holidayMultiplierEnabled: false,
         isActive: true,
         supportsHourlyBooking: false,
       })
@@ -96,30 +113,76 @@ export function RoomFormModal({ open, onOpenChange, room, propertyId, onSuccess 
       let result
       if (room) {
         // For update, don't include propertyId (it can't be changed)
-        const updateInput = {
+        // IMPORTANT: Preserve existing multiplier values if checkbox is disabled
+        const updateInput: any = {
           roomNumber: formData.roomNumber,
           roomType: formData.roomType,
           capacity: parseInt(formData.capacity),
           basePricePerNight: parseFloat(formData.basePricePerNight),
           description: formData.description || undefined,
-          images: formData.images.length > 0 ? formData.images : undefined,
+          images: formData.images, // Always send array, even if empty (to allow deletion)
           isActive: formData.isActive,
           supportsHourlyBooking: formData.supportsHourlyBooking,
         }
+        
+        // Handle weekend multiplier and enable flag
+        if (formData.weekendMultiplierEnabled && formData.weekendMultiplier) {
+          updateInput.weekendMultiplier = parseFloat(formData.weekendMultiplier)
+          updateInput.enableWeekendMultiplier = true
+        } else if (!formData.weekendMultiplierEnabled) {
+          // If disabled, keep existing multiplier value but set enable flag to false
+          updateInput.weekendMultiplier = room.weekendMultiplier ?? undefined
+          updateInput.enableWeekendMultiplier = false
+        } else {
+          // If enabled but empty, set to undefined (user wants to remove)
+          updateInput.weekendMultiplier = undefined
+          updateInput.enableWeekendMultiplier = false
+        }
+        
+        // Handle holiday multiplier and enable flag
+        if (formData.holidayMultiplierEnabled && formData.holidayMultiplier) {
+          updateInput.holidayMultiplier = parseFloat(formData.holidayMultiplier)
+          updateInput.enableHolidayMultiplier = true
+        } else if (!formData.holidayMultiplierEnabled) {
+          // If disabled, keep existing multiplier value but set enable flag to false
+          updateInput.holidayMultiplier = room.holidayMultiplier ?? undefined
+          updateInput.enableHolidayMultiplier = false
+        } else {
+          // If enabled but empty, set to undefined (user wants to remove)
+          updateInput.holidayMultiplier = undefined
+          updateInput.enableHolidayMultiplier = false
+        }
+        
         result = await graphqlClient.updateRoomUnit(room.id, updateInput)
       } else {
         // For create, include propertyId
-        const createInput = {
+        const createInput: any = {
           propertyId: formData.propertyId,
           roomNumber: formData.roomNumber,
           roomType: formData.roomType,
           capacity: parseInt(formData.capacity),
           basePricePerNight: parseFloat(formData.basePricePerNight),
           description: formData.description || undefined,
-          images: formData.images.length > 0 ? formData.images : undefined,
+          images: formData.images, // Always send array, even if empty
           isActive: formData.isActive,
           supportsHourlyBooking: formData.supportsHourlyBooking,
         }
+        
+        // Only include multipliers if checkbox is enabled and value is provided
+        if (formData.weekendMultiplierEnabled && formData.weekendMultiplier) {
+          createInput.weekendMultiplier = parseFloat(formData.weekendMultiplier)
+          createInput.enableWeekendMultiplier = true
+        } else {
+          createInput.enableWeekendMultiplier = false
+        }
+        
+        if (formData.holidayMultiplierEnabled && formData.holidayMultiplier) {
+          createInput.holidayMultiplier = parseFloat(formData.holidayMultiplier)
+          createInput.enableHolidayMultiplier = true
+        } else {
+          createInput.enableHolidayMultiplier = false
+        }
+        
         result = await graphqlClient.createRoomUnit(createInput)
       }
 
@@ -154,9 +217,78 @@ export function RoomFormModal({ open, onOpenChange, room, propertyId, onSuccess 
     })
   }
 
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setUploadingImage(true)
+    setError(null)
+
+    try {
+      const uploadFormData = new FormData()
+      uploadFormData.append('file', file)
+
+      const token = localStorage.getItem('auth_token')
+      let uploadUrl: string
+      
+      // If room exists, upload to room-specific endpoint
+      // Otherwise, upload to general room upload endpoint
+      if (room?.id) {
+        uploadUrl = `${BACKEND_BASE_URL}/api/v1/properties/rooms/${room.id}/upload-image`
+      } else {
+        // For new room, we can't upload yet - use preview URL
+        const previewUrl = URL.createObjectURL(file)
+        setFormData(prev => ({
+          ...prev,
+          images: [...prev.images, previewUrl],
+        }))
+        if (fileInputRef.current) {
+          fileInputRef.current.value = ''
+        }
+        setUploadingImage(false)
+        return
+      }
+
+      const response = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: uploadFormData,
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Upload failed' }))
+        throw new Error(errorData.message || 'Upload failed')
+      }
+
+          const uploadResult = await response.json()
+          
+          // Use the URL from server response as-is (it should be relative path like /api/v1/uploads/rooms/...)
+          // Don't prepend BACKEND_BASE_URL as it will be resolved by the frontend automatically
+          const imageUrl = uploadResult.url
+          
+          // Add uploaded image URL to form data immediately
+          setFormData(prev => ({
+            ...prev,
+            images: [...prev.images, imageUrl],
+          }))
+
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    } catch (error: any) {
+      console.error('Error uploading image:', error)
+      setError(error.message || 'Gagal upload foto')
+    } finally {
+      setUploadingImage(false)
+    }
+  }
+
   return (
     <Modal open={open} onOpenChange={onOpenChange} className="max-w-3xl">
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} className="flex flex-col" style={{ height: '100%', maxHeight: '90vh' }}>
         <ModalHeader onClose={() => onOpenChange(false)}>
           <div>
             <ModalTitle>{room ? t('rooms.editRoomTitle') : t('rooms.addRoomTitle')}</ModalTitle>
@@ -166,7 +298,7 @@ export function RoomFormModal({ open, onOpenChange, room, propertyId, onSuccess 
           </div>
         </ModalHeader>
 
-        <ModalContent>
+        <ModalContent className="flex-1 overflow-y-auto min-h-0">
           {error && (
             <div className="mb-4 flex items-center gap-2 p-3 text-sm text-destructive bg-destructive/10 rounded-md border border-destructive/20">
               <AlertCircle className="h-4 w-4" />
@@ -259,6 +391,98 @@ export function RoomFormModal({ open, onOpenChange, room, propertyId, onSuccess 
               </div>
 
               <div className="space-y-2">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="weekendMultiplierEnabled"
+                    checked={formData.weekendMultiplierEnabled}
+                    onCheckedChange={(checked) => {
+                      setFormData({ ...formData, weekendMultiplierEnabled: checked === true });
+                    }}
+                  />
+                  <Label htmlFor="weekendMultiplierEnabled" className="cursor-pointer">
+                    Aktifkan Weekend Multiplier
+                  </Label>
+                </div>
+                {formData.weekendMultiplierEnabled && (
+                  <>
+                    <div className="relative">
+                      <Input
+                        id="weekendMultiplier"
+                        type="number"
+                        step="0.01"
+                        min="1"
+                        max="5"
+                        value={formData.weekendMultiplier}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === '' || (!isNaN(parseFloat(val)) && parseFloat(val) >= 1 && parseFloat(val) <= 5)) {
+                            setFormData({ ...formData, weekendMultiplier: val });
+                          }
+                        }}
+                        placeholder="1.25"
+                        className="pr-20"
+                      />
+                      {formData.weekendMultiplier && (
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                          {(parseFloat(formData.weekendMultiplier) * 100 - 100).toFixed(0)}%
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      <strong>Format:</strong> Angka antara 1.0 - 5.0 (contoh: 1.25 = +25%, 1.5 = +50%, 2.0 = +100%). 
+                      <strong className="block mt-1">PENTING:</strong> Weekend multiplier HANYA berlaku jika TIDAK ada Holiday. Holiday memiliki priority lebih tinggi.
+                    </p>
+                  </>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="holidayMultiplierEnabled"
+                    checked={formData.holidayMultiplierEnabled}
+                    onCheckedChange={(checked) => {
+                      setFormData({ ...formData, holidayMultiplierEnabled: checked === true });
+                    }}
+                  />
+                  <Label htmlFor="holidayMultiplierEnabled" className="cursor-pointer">
+                    Aktifkan Holiday Multiplier
+                  </Label>
+                </div>
+                {formData.holidayMultiplierEnabled && (
+                  <>
+                    <div className="relative">
+                      <Input
+                        id="holidayMultiplier"
+                        type="number"
+                        step="0.01"
+                        min="1"
+                        max="5"
+                        value={formData.holidayMultiplier}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === '' || (!isNaN(parseFloat(val)) && parseFloat(val) >= 1 && parseFloat(val) <= 5)) {
+                            setFormData({ ...formData, holidayMultiplier: val });
+                          }
+                        }}
+                        placeholder="1.5"
+                        className="pr-20"
+                      />
+                      {formData.holidayMultiplier && (
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                          {(parseFloat(formData.holidayMultiplier) * 100 - 100).toFixed(0)}%
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      <strong>Format:</strong> Angka antara 1.0 - 5.0 (contoh: 1.5 = +50%, 2.0 = +100%, 2.5 = +150%). 
+                      <strong className="block mt-1">PENTING:</strong> Holiday multiplier berlaku untuk SEMUA holiday. Priority: RoomUnit &gt; PropertyHolidayMultiplier &gt; Holiday default.
+                    </p>
+                  </>
+                )}
+              </div>
+
+              <div className="space-y-2">
                 <Label htmlFor="description">{t('rooms.descriptionLabel')}</Label>
                 <Textarea
                   id="description"
@@ -274,7 +498,34 @@ export function RoomFormModal({ open, onOpenChange, room, propertyId, onSuccess 
             <div className="space-y-4 pt-4 border-t">
               <h3 className="font-semibold text-lg">{t('rooms.imagesLabel')}</h3>
               
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleImageUpload}
+                  disabled={uploadingImage}
+                />
+                <Button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  variant="outline"
+                  disabled={uploadingImage}
+                  className="relative z-10"
+                >
+                  {uploadingImage ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Mengunggah...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-4 w-4 mr-2" />
+                      Upload Foto
+                    </>
+                  )}
+                </Button>
                 <Input
                   type="url"
                   placeholder={t('rooms.addImageUrl')}
@@ -286,6 +537,7 @@ export function RoomFormModal({ open, onOpenChange, room, propertyId, onSuccess 
                       addImageUrl()
                     }
                   }}
+                  className="flex-1 min-w-[200px]"
                 />
                 <Button 
                   type="button" 
@@ -299,25 +551,34 @@ export function RoomFormModal({ open, onOpenChange, room, propertyId, onSuccess 
 
               {formData.images.length > 0 && (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                  {formData.images.map((url, idx) => (
-                    <div key={idx} className="relative group">
-                      <img
-                        src={url}
-                        alt={`Room image ${idx + 1}`}
-                        className="w-full h-24 object-cover rounded-md"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3Ctext fill="%23999" x="50%" y="50%" text-anchor="middle" dy=".3em"%3EImage%3C/text%3E%3C/svg%3E'
-                        }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeImageUrl(url)}
-                        className="absolute top-1 right-1 bg-destructive text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity z-10 cursor-pointer"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </div>
-                  ))}
+                  {formData.images.map((url, idx) => {
+                    // Normalize URL - if it's a relative path, prepend BACKEND_BASE_URL
+                    const imageSrc = url.startsWith('http') 
+                      ? url 
+                      : url.startsWith('/') 
+                        ? `${BACKEND_BASE_URL}${url}`
+                        : `${BACKEND_BASE_URL}/api/v1/uploads/rooms/${url}`
+                    
+                    return (
+                      <div key={idx} className="relative group">
+                        <img
+                          src={imageSrc}
+                          alt={`Room image ${idx + 1}`}
+                          className="w-full h-24 object-cover rounded-md"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3Ctext fill="%23999" x="50%" y="50%" text-anchor="middle" dy=".3em"%3EImage%3C/text%3E%3C/svg%3E'
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeImageUrl(url)}
+                          className="absolute top-1 right-1 bg-destructive text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity z-10 cursor-pointer"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </div>

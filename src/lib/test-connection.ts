@@ -2,9 +2,9 @@
  * Utility function to test backend connection
  * Can be called from browser console or used in development
  */
+import { GRAPHQL_ENDPOINT } from './api-config'
 
 export async function testBackendConnection() {
-  const GRAPHQL_ENDPOINT = process.env.NEXT_PUBLIC_GRAPHQL_URL || 'http://localhost:3010/graphql'
   
   try {
     console.log('Testing connection to:', GRAPHQL_ENDPOINT)
@@ -43,6 +43,13 @@ export async function testBackendConnection() {
 if (typeof window !== 'undefined') {
   (window as any).testBackendConnection = testBackendConnection
 }
+
+
+
+
+
+
+
 
 
 

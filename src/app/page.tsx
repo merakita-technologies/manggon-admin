@@ -4,17 +4,27 @@ import { useState, useEffect, useCallback } from 'react'
 import DashboardLayout from '@/components/layout/dashboard-layout'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Users, Building, Calendar, CreditCard, Loader2, TrendingUp, ArrowRight, Bed, DollarSign } from 'lucide-react'
+import { Users, Building, Calendar, CreditCard, Loader2, TrendingUp, TrendingDown, ArrowRight, Bed, DollarSign, ArrowUp, ArrowDown } from 'lucide-react'
 import { graphqlClient } from '@/lib/graphql'
 import Link from 'next/link'
 import { formatDate } from '@/lib/date-utils'
 import { formatCurrency } from '@/lib/currency-utils'
 import { useI18n } from '@/contexts/i18n-context'
 
+type TimePeriod = 'today' | '7d' | '30d' | 'all'
+
 export default function Dashboard() {
   const { t } = useI18n()
   const [userRole, setUserRole] = useState<string>('user')
+  const [timePeriod, setTimePeriod] = useState<TimePeriod>('30d')
   const [stats, setStats] = useState({
+    totalUsers: 0,
+    totalProperties: 0,
+    totalBookings: 0,
+    totalRevenue: 0,
+    totalRooms: 0,
+  })
+  const [previousStats, setPreviousStats] = useState({
     totalUsers: 0,
     totalProperties: 0,
     totalBookings: 0,
@@ -40,6 +50,27 @@ export default function Dashboard() {
     }
   }, [])
 
+  const getDateRange = (period: TimePeriod) => {
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    
+    switch (period) {
+      case 'today':
+        return { start: today, end: now }
+      case '7d':
+        const sevenDaysAgo = new Date(today)
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+        return { start: sevenDaysAgo, end: now }
+      case '30d':
+        const thirtyDaysAgo = new Date(today)
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+        return { start: thirtyDaysAgo, end: now }
+      case 'all':
+      default:
+        return { start: null, end: null }
+    }
+  }
+
   const fetchDashboardData = useCallback(async () => {
     if (!userRole) return // Wait for user role to be set
     
@@ -62,6 +93,30 @@ export default function Dashboard() {
         ? bookings 
         : bookings.filter((b: any) => ownerPropertyIds.includes(b.property?.id))
 
+      // Get date range for current period
+      const { start: periodStart, end: periodEnd } = getDateRange(timePeriod)
+      
+      // Filter bookings by time period
+      const periodBookings = periodStart && periodEnd
+        ? filteredBookings.filter((b: any) => {
+            const bookingDate = new Date(b.bookingDate)
+            return bookingDate >= periodStart && bookingDate <= periodEnd
+          })
+        : filteredBookings
+
+      // Get previous period for comparison
+      let previousPeriodBookings: any[] = []
+      if (timePeriod !== 'all' && periodStart && periodEnd) {
+        const periodDuration = periodEnd.getTime() - periodStart.getTime()
+        const previousPeriodStart = new Date(periodStart.getTime() - periodDuration)
+        const previousPeriodEnd = periodStart
+        
+        previousPeriodBookings = filteredBookings.filter((b: any) => {
+          const bookingDate = new Date(b.bookingDate)
+          return bookingDate >= previousPeriodStart && bookingDate < previousPeriodEnd
+        })
+      }
+
       // Calculate stats based on role
       let totalUsers = 0
       if (isAdmin) {
@@ -70,7 +125,7 @@ export default function Dashboard() {
       }
 
       const totalProperties = properties.length
-      const totalBookings = filteredBookings.length
+      const totalBookings = periodBookings.length
       
       // Calculate total rooms
       const totalRooms = properties.reduce((sum: number, p: any) => {
@@ -78,9 +133,24 @@ export default function Dashboard() {
       }, 0)
       
       // Calculate revenue from completed payments
-      const totalRevenue = filteredBookings
+      const totalRevenue = periodBookings
         .filter((b: any) => b.payment?.status === 'Completed')
         .reduce((sum: number, b: any) => sum + (b.totalPrice || 0), 0)
+
+      // Calculate previous period stats for comparison
+      const previousBookings = previousPeriodBookings.length
+      const previousRevenue = previousPeriodBookings
+        .filter((b: any) => b.payment?.status === 'Completed')
+        .reduce((sum: number, b: any) => sum + (b.totalPrice || 0), 0)
+
+      // Store previous stats for trend calculation
+      setPreviousStats({
+        totalUsers: 0, // Users don't change by period
+        totalProperties: 0, // Properties don't change by period
+        totalBookings: previousBookings,
+        totalRevenue: previousRevenue,
+        totalRooms: 0, // Rooms don't change by period
+      })
 
       setStats({
         totalUsers,
@@ -91,7 +161,7 @@ export default function Dashboard() {
       })
 
       // Get recent bookings (last 5)
-      const sortedBookings = [...filteredBookings]
+      const sortedBookings = [...periodBookings]
         .sort((a: any, b: any) => 
           new Date(b.bookingDate).getTime() - new Date(a.bookingDate).getTime()
         )
@@ -103,7 +173,7 @@ export default function Dashboard() {
     } finally {
       setIsLoading(false)
     }
-  }, [userRole])
+  }, [userRole, timePeriod, t])
 
   useEffect(() => {
     // Fetch data after user role is set
@@ -111,6 +181,15 @@ export default function Dashboard() {
       fetchDashboardData()
     }
   }, [userRole, fetchDashboardData])
+
+  // Calculate trend percentage
+  const calculateTrend = (current: number, previous: number): { value: number; isPositive: boolean } => {
+    if (previous === 0) {
+      return { value: current > 0 ? 100 : 0, isPositive: current > 0 }
+    }
+    const change = ((current - previous) / previous) * 100
+    return { value: Math.abs(change), isPositive: change >= 0 }
+  }
 
   // Stat cards based on user role
   const getStatCards = () => {
@@ -123,28 +202,32 @@ export default function Dashboard() {
       value: stats.totalUsers.toLocaleString(), 
       icon: Users, 
       href: '/users',
-      color: 'text-blue-600'
+      color: 'text-blue-600',
+      trend: null // Users don't change by period
     },
     { 
       title: t('dashboard.totalProperties'), 
       value: stats.totalProperties.toLocaleString(), 
       icon: Building, 
       href: '/properties',
-      color: 'text-green-600'
+      color: 'text-green-600',
+      trend: null // Properties don't change by period
     },
     { 
       title: t('dashboard.totalBookings'), 
       value: stats.totalBookings.toLocaleString(), 
       icon: Calendar, 
       href: '/bookings',
-      color: 'text-purple-600'
+      color: 'text-purple-600',
+      trend: calculateTrend(stats.totalBookings, previousStats.totalBookings)
     },
     { 
       title: t('dashboard.totalRevenue'), 
       value: formatCurrency(stats.totalRevenue, { showDecimals: false }), 
       icon: CreditCard, 
       href: '/payments',
-      color: 'text-orange-600'
+      color: 'text-orange-600',
+      trend: calculateTrend(stats.totalRevenue, previousStats.totalRevenue)
     },
   ]
     } else {
@@ -155,28 +238,32 @@ export default function Dashboard() {
           value: stats.totalProperties.toLocaleString(), 
           icon: Building, 
           href: '/properties',
-          color: 'text-green-600'
+          color: 'text-green-600',
+          trend: null
         },
         { 
           title: t('dashboard.totalRooms'), 
           value: stats.totalRooms.toLocaleString(), 
           icon: Bed, 
           href: '/rooms',
-          color: 'text-blue-600'
+          color: 'text-blue-600',
+          trend: null
         },
         { 
           title: t('dashboard.totalBookings'), 
           value: stats.totalBookings.toLocaleString(), 
           icon: Calendar, 
           href: '/bookings',
-          color: 'text-purple-600'
+          color: 'text-purple-600',
+          trend: calculateTrend(stats.totalBookings, previousStats.totalBookings)
         },
         { 
           title: t('dashboard.totalRevenue'), 
           value: formatCurrency(stats.totalRevenue, { showDecimals: false }), 
           icon: DollarSign, 
           href: '/payments',
-          color: 'text-orange-600'
+          color: 'text-orange-600',
+          trend: calculateTrend(stats.totalRevenue, previousStats.totalRevenue)
         },
       ]
     }
@@ -187,11 +274,36 @@ export default function Dashboard() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold">{t('dashboard.title')}</h1>
-          <p className="text-muted-foreground">
-            {t('dashboard.welcome')}
-          </p>
+        {/* Header with Time Period Selector */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold">{t('dashboard.title')}</h1>
+            <p className="text-muted-foreground">
+              {t('dashboard.welcome')}
+            </p>
+          </div>
+          {/* Time Period Selector */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">{t('dashboard.timePeriod', { defaultValue: 'Period' })}:</span>
+            <div className="inline-flex rounded-lg border border-input bg-background p-1">
+              {(['today', '7d', '30d', 'all'] as TimePeriod[]).map((period) => (
+                <button
+                  key={period}
+                  onClick={() => setTimePeriod(period)}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                    timePeriod === period
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                  }`}
+                >
+                  {period === 'today' ? t('dashboard.today', { defaultValue: 'Today' }) :
+                   period === '7d' ? t('dashboard.last7Days', { defaultValue: '7d' }) :
+                   period === '30d' ? t('dashboard.last30Days', { defaultValue: '30d' }) :
+                   t('dashboard.allTime', { defaultValue: 'All' })}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         {error && (
@@ -211,10 +323,11 @@ export default function Dashboard() {
           </div>
         ) : (
           <>
-            {/* Stats Cards */}
+            {/* Stats Cards with Trends */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               {statCards.map((stat) => {
                 const Icon = stat.icon
+                const trend = stat.trend
                 return (
                   <Link key={stat.title} href={stat.href}>
                     <Card className="hover:shadow-lg transition-shadow cursor-pointer">
@@ -226,9 +339,28 @@ export default function Dashboard() {
                       </CardHeader>
                       <CardContent>
                         <div className="text-2xl font-bold">{stat.value}</div>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {t('common.view')} {t('common.details', { defaultValue: 'details' })}
-                        </p>
+                        {trend && timePeriod !== 'all' && (
+                          <div className={`flex items-center gap-1 mt-1 text-xs ${
+                            trend.isPositive ? 'text-green-600' : 'text-red-600'
+                          }`}>
+                            {trend.isPositive ? (
+                              <ArrowUp className="h-3 w-3" />
+                            ) : (
+                              <ArrowDown className="h-3 w-3" />
+                            )}
+                            <span className="font-medium">
+                              {trend.value.toFixed(1)}%
+                            </span>
+                            <span className="text-muted-foreground">
+                              vs previous period
+                            </span>
+                          </div>
+                        )}
+                        {(!trend || timePeriod === 'all') && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {t('common.view')} {t('common.details', { defaultValue: 'details' })}
+                          </p>
+                        )}
                       </CardContent>
                     </Card>
                   </Link>

@@ -188,6 +188,19 @@
   }
 }
 
+/* Density Mode Styles */
+body.density-compact {
+  --table-row-height: 2rem;
+  --card-padding: 0.75rem;
+  --spacing-unit: 0.5rem;
+}
+
+body.density-comfortable {
+  --table-row-height: 3rem;
+  --card-padding: 1rem;
+  --spacing-unit: 1rem;
+}
+
 /* Utility Classes */
 .line-clamp-1 {
   overflow: hidden;

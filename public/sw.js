@@ -1,133 +1,258 @@
-// Service Worker untuk Manggon Admin PWA
-const CACHE_NAME = 'manggon-admin-v1';
-const urlsToCache = [
-  '/',
-  '/auth/login',
-  '/users',
-  '/properties',
-  '/bookings',
-  '/manifest.json',
-  '/icon-192x192.png',
-  '/icon-512x512.png',
-  '/logo1.png'
-];
+// Service Worker for PWA with Push Notifications
+const CACHE_NAME = 'manggon-admin-v1'
+const RUNTIME_CACHE = 'manggon-runtime-v1'
 
-// Install event - cache resources
+// Install event - cache static assets
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => {
-        console.log('Opened cache');
-        return cache.addAll(urlsToCache);
-      })
-      .catch((error) => {
-        console.error('Cache failed:', error);
-      })
-  );
-  self.skipWaiting();
-});
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll([
+        '/',
+        '/manifest.json',
+      ])
+    })
+  )
+  self.skipWaiting()
+})
 
 // Activate event - clean up old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
-            console.log('Deleting old cache:', cacheName);
-            return caches.delete(cacheName);
-          }
-        })
-      );
+        cacheNames
+          .filter((cacheName) => {
+            return cacheName !== CACHE_NAME && cacheName !== RUNTIME_CACHE
+          })
+          .map((cacheName) => caches.delete(cacheName))
+      )
     })
-  );
-  return self.clients.claim();
-});
+  )
+  self.clients.claim()
+})
 
 // Fetch event - serve from cache, fallback to network
 self.addEventListener('fetch', (event) => {
-  const request = event.request;
-
-  // Skip caching for non-GET requests (POST, PUT, DELETE, etc.)
-  if (request.method !== 'GET') {
-    return;
-  }
-
-  // Skip caching for GraphQL requests and API calls
-  if (request.url.includes('/api/') || request.url.includes('/graphql')) {
-    return;
+  // Skip non-GET requests
+  if (event.request.method !== 'GET') {
+    return
   }
 
   event.respondWith(
-    caches.match(request)
-      .then((response) => {
-        // Cache hit - return response
-        if (response) {
-          return response;
+    caches.match(event.request).then((cachedResponse) => {
+      if (cachedResponse) {
+        return cachedResponse
+      }
+
+      return fetch(event.request).then((response) => {
+        // Don't cache if not a valid response
+        if (!response || response.status !== 200 || response.type !== 'basic') {
+          return response
         }
 
-        // Clone the request
-        const fetchRequest = request.clone();
+        // Clone the response
+        const responseToCache = response.clone()
 
-        return fetch(fetchRequest).then((response) => {
-          // Check if valid response
-          if (!response || response.status !== 200 || response.type !== 'basic') {
-            return response;
-          }
+        caches.open(RUNTIME_CACHE).then((cache) => {
+          cache.put(event.request, responseToCache)
+        })
 
-          // Only cache GET requests
-          if (request.method === 'GET') {
-            // Clone the response
-            const responseToCache = response.clone();
-
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(request, responseToCache);
-            });
-          }
-
-          return response;
-        });
+        return response
       })
-      .catch(() => {
-        // Offline fallback
-        if (request.destination === 'document') {
-          return caches.match('/');
-        }
-      })
-  );
-});
+    })
+  )
+})
 
-// Background sync (optional - for offline form submissions)
-self.addEventListener('sync', (event) => {
-  if (event.tag === 'background-sync') {
-    event.waitUntil(
-      // Handle background sync here
-      console.log('Background sync triggered')
-    );
-  }
-});
-
-// Push notification (optional)
+// Push event - handle push notifications (via Socket.IO or polling)
+// Note: This will be triggered by Socket.IO events or service worker messaging
 self.addEventListener('push', (event) => {
-  const options = {
-    body: event.data ? event.data.text() : 'New notification from Manggon Admin',
+  let notificationData = {
+    title: 'Manggon Admin',
+    body: 'You have a new notification',
     icon: '/icon-192x192.png',
     badge: '/icon-192x192.png',
-    vibrate: [200, 100, 200],
-    tag: 'manggon-admin-notification',
+    tag: 'manggon-notification',
     requireInteraction: false,
-  };
+    data: {},
+  }
+
+  if (event.data) {
+    try {
+      const data = event.data.json()
+      notificationData = {
+        ...notificationData,
+        title: data.title || notificationData.title,
+        body: data.body || notificationData.body,
+        icon: data.icon || notificationData.icon,
+        badge: data.badge || notificationData.badge,
+        tag: data.tag || notificationData.tag,
+        requireInteraction: data.requireInteraction || false,
+        data: data.data || {},
+      }
+    } catch (e) {
+      console.error('Error parsing push data:', e)
+      notificationData.body = event.data.text() || notificationData.body
+    }
+  }
 
   event.waitUntil(
-    self.registration.showNotification('Manggon Admin', options)
-  );
-});
+    self.registration.showNotification(notificationData.title, {
+      body: notificationData.body,
+      icon: notificationData.icon,
+      badge: notificationData.badge,
+      tag: notificationData.tag,
+      requireInteraction: notificationData.requireInteraction,
+      data: notificationData.data,
+      actions: notificationData.data.actions || [],
+    })
+  )
+})
 
-// Notification click handler
+// Listen for messages from main thread (Socket.IO notifications)
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'NOTIFICATION') {
+    const { title, body, icon, tag, data: notificationData } = event.data
+    self.registration.showNotification(title || 'Manggon Admin', {
+      body: body || 'You have a new notification',
+      icon: icon || '/icon-192x192.png',
+      badge: '/icon-192x192.png',
+      tag: tag || 'manggon-notification',
+      data: notificationData || {},
+    })
+  }
+})
+
+// Notification click event
 self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-  event.waitUntil(
-    clients.openWindow('/')
-  );
-});
+  event.notification.close()
 
+  const notificationData = event.notification.data || {}
+  const urlToOpen = notificationData.url || '/'
+
+  event.waitUntil(
+    clients
+      .matchAll({
+        type: 'window',
+        includeUncontrolled: true,
+      })
+      .then((clientList) => {
+        // If there's already a window open, focus it
+        for (let i = 0; i < clientList.length; i++) {
+          const client = clientList[i]
+          if (client.url === urlToOpen && 'focus' in client) {
+            return client.focus()
+          }
+        }
+
+        // Otherwise, open a new window
+        if (clients.openWindow) {
+          return clients.openWindow(urlToOpen)
+        }
+      })
+  )
+})
+
+// Background sync event - Check for notifications
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'check-notifications') {
+    event.waitUntil(checkNotifications())
+  }
+})
+
+// Periodic sync (Chrome/Edge only) - Check notifications every 5 minutes
+if ('periodicSync' in self.registration) {
+  self.addEventListener('periodicsync', (event) => {
+    if (event.tag === 'check-notifications-periodic') {
+      event.waitUntil(checkNotifications())
+    }
+  })
+}
+
+// Check for unread notifications
+async function checkNotifications() {
+  try {
+    // Get auth token from IndexedDB (stored when app was open)
+    const token = await getAuthTokenFromIndexedDB()
+    if (!token) {
+      console.log('No auth token found, skipping notification check')
+      return
+    }
+
+    const backendUrl = self.location.origin.includes('localhost') 
+      ? 'http://localhost:3010' 
+      : self.location.origin.replace(/:\d+$/, ':3010')
+
+    const response = await fetch(`${backendUrl}/api/v1/notifications/unread-count`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    })
+
+    if (!response.ok) {
+      console.error('Failed to check notifications:', response.status)
+      return
+    }
+
+    const data = await response.json()
+    
+    if (data.count > 0) {
+      // Show notification
+      const notificationTitle = 'Manggon Admin'
+      const notificationBody = data.count === 1 
+        ? 'You have 1 unread notification'
+        : `You have ${data.count} unread notifications`
+
+      await self.registration.showNotification(notificationTitle, {
+        body: notificationBody,
+        icon: '/icon-192x192.png',
+        badge: '/icon-192x192.png',
+        tag: 'unread-notifications',
+        requireInteraction: false,
+        data: {
+          url: '/notifications',
+        },
+      })
+    }
+  } catch (error) {
+    console.error('Error checking notifications:', error)
+  }
+}
+
+// Get auth token from IndexedDB
+async function getAuthTokenFromIndexedDB() {
+  return new Promise((resolve) => {
+    const request = indexedDB.open('manggon-admin', 1)
+    
+    request.onsuccess = (event) => {
+      const db = event.target.result
+      if (!db.objectStoreNames.contains('tokens')) {
+        resolve(null)
+        return
+      }
+      
+      const transaction = db.transaction(['tokens'], 'readonly')
+      const store = transaction.objectStore('tokens')
+      const getRequest = store.get('auth_token')
+      
+      getRequest.onsuccess = () => {
+        resolve(getRequest.result?.value || null)
+      }
+      
+      getRequest.onerror = () => {
+        resolve(null)
+      }
+    }
+    
+    request.onerror = () => {
+      resolve(null)
+    }
+    
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result
+      if (!db.objectStoreNames.contains('tokens')) {
+        db.createObjectStore('tokens')
+      }
+    }
+  })
+}

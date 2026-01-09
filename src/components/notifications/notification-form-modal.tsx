@@ -116,7 +116,7 @@ export function NotificationFormModal({ open, onOpenChange, notification, onSucc
 
   return (
     <Modal open={open} onOpenChange={onOpenChange} className="max-w-2xl">
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} className="flex flex-col" style={{ height: '100%', maxHeight: '90vh' }}>
         <ModalHeader onClose={() => onOpenChange(false)}>
           <div>
             <ModalTitle>{notification ? t('notifications.editNotificationTitle') : t('notifications.addNotificationTitle')}</ModalTitle>
@@ -126,7 +126,7 @@ export function NotificationFormModal({ open, onOpenChange, notification, onSucc
           </div>
         </ModalHeader>
 
-        <ModalContent>
+        <ModalContent className="flex-1 overflow-y-auto min-h-0">
           {error && (
             <div className="mb-4 flex items-center gap-2 p-3 text-sm text-destructive bg-destructive/10 rounded-md border border-destructive/20">
               <AlertCircle className="h-4 w-4" />

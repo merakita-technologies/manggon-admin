@@ -1,14 +1,15 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, type FormEvent, type ChangeEvent } from 'react'
 import { Modal, ModalHeader, ModalContent, ModalFooter, ModalTitle, ModalDescription } from '@/components/ui/modal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { graphqlClient } from '@/lib/graphql'
-import { Loader2, AlertCircle, X } from 'lucide-react'
+import { Loader2, AlertCircle, X, Upload, Image as ImageIcon } from 'lucide-react'
 import { useI18n } from '@/contexts/i18n-context'
+import { BACKEND_BASE_URL } from '@/lib/api-config'
 
 interface PropertyFormModalProps {
   open: boolean
@@ -30,7 +31,6 @@ export function PropertyFormModal({ open, onOpenChange, property, onSuccess }: P
     propertyType: 'hotel',
     imageUrls: [] as string[],
     placeId: '',
-    pricePerNight: '',
     amenities: [] as string[],
     maxGuests: '',
     bedrooms: '',
@@ -41,10 +41,13 @@ export function PropertyFormModal({ open, onOpenChange, property, onSuccess }: P
     checkOutTime: '12:00',
     cancellationPolicy: '',
     dynamicPricingEnabled: false,
+    weekendMultiplier: '',
     isActive: true,
   })
   const [amenityInput, setAmenityInput] = useState('')
   const [imageUrlInput, setImageUrlInput] = useState('')
+  const [uploadingImage, setUploadingImage] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (property) {
@@ -57,7 +60,6 @@ export function PropertyFormModal({ open, onOpenChange, property, onSuccess }: P
         propertyType: property.propertyType || 'hotel',
         imageUrls: property.imageUrls || [],
         placeId: property.placeId || '',
-        pricePerNight: property.pricePerNight?.toString() || '',
         amenities: property.amenities || [],
         maxGuests: property.maxGuests?.toString() || '',
         bedrooms: property.bedrooms?.toString() || '',
@@ -68,6 +70,7 @@ export function PropertyFormModal({ open, onOpenChange, property, onSuccess }: P
         checkOutTime: property.checkOutTime || '12:00',
         cancellationPolicy: property.cancellationPolicy || '',
         dynamicPricingEnabled: property.dynamicPricingEnabled || false,
+        weekendMultiplier: property.weekendMultiplier?.toString() || '',
         isActive: property.isActive !== undefined ? property.isActive : true,
       })
     } else {
@@ -81,7 +84,6 @@ export function PropertyFormModal({ open, onOpenChange, property, onSuccess }: P
         propertyType: 'hotel',
         imageUrls: [],
         placeId: '',
-        pricePerNight: '',
         amenities: [],
         maxGuests: '',
         bedrooms: '',
@@ -92,13 +94,14 @@ export function PropertyFormModal({ open, onOpenChange, property, onSuccess }: P
         checkOutTime: '12:00',
         cancellationPolicy: '',
         dynamicPricingEnabled: false,
+        weekendMultiplier: '',
         isActive: true,
       })
     }
     setError(null)
   }, [property, open])
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setError(null)
     setIsLoading(true)
@@ -113,7 +116,6 @@ export function PropertyFormModal({ open, onOpenChange, property, onSuccess }: P
         propertyType: formData.propertyType,
         imageUrls: formData.imageUrls.length > 0 ? formData.imageUrls : undefined,
         placeId: formData.placeId || undefined,
-        pricePerNight: formData.pricePerNight ? parseFloat(formData.pricePerNight) : undefined,
         amenities: formData.amenities.length > 0 ? formData.amenities : undefined,
         maxGuests: formData.maxGuests ? parseInt(formData.maxGuests) : undefined,
         bedrooms: formData.bedrooms ? parseInt(formData.bedrooms) : undefined,
@@ -124,6 +126,7 @@ export function PropertyFormModal({ open, onOpenChange, property, onSuccess }: P
         checkOutTime: formData.checkOutTime || undefined,
         cancellationPolicy: formData.cancellationPolicy || undefined,
         dynamicPricingEnabled: formData.dynamicPricingEnabled,
+        weekendMultiplier: formData.weekendMultiplier ? parseFloat(formData.weekendMultiplier) : undefined,
         isActive: formData.isActive,
       }
 
@@ -180,6 +183,66 @@ export function PropertyFormModal({ open, onOpenChange, property, onSuccess }: P
       ...formData,
       imageUrls: formData.imageUrls.filter((u) => u !== url),
     })
+  }
+
+  const handleImageUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setUploadingImage(true)
+    setError(null)
+
+    try {
+      const uploadFormData = new FormData()
+      uploadFormData.append('file', file)
+
+      const token = localStorage.getItem('auth_token')
+      let uploadUrl: string
+      
+      // If property exists, upload to property-specific endpoint
+      // Otherwise, upload to general property upload endpoint
+      if (property?.id) {
+        uploadUrl = `${BACKEND_BASE_URL}/api/v1/properties/${property.id}/upload-image`
+      } else {
+        uploadUrl = `${BACKEND_BASE_URL}/api/v1/properties/upload-image`
+      }
+
+      const response = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: uploadFormData,
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Upload failed' }))
+        throw new Error(errorData.message || 'Upload failed')
+      }
+
+      const uploadResult = await response.json()
+      
+      // Construct full URL if needed
+      const imageUrl = uploadResult.url.startsWith('http') 
+        ? uploadResult.url 
+        : `${BACKEND_BASE_URL}${uploadResult.url}`
+      
+      // Add uploaded image URL to form data immediately
+      setFormData(prev => ({
+        ...prev,
+        imageUrls: [...prev.imageUrls, imageUrl],
+      }))
+
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    } catch (error: any) {
+      console.error('Error uploading image:', error)
+      setError(error.message || 'Gagal upload foto')
+    } finally {
+      setUploadingImage(false)
+    }
   }
 
   return (
@@ -317,26 +380,27 @@ export function PropertyFormModal({ open, onOpenChange, property, onSuccess }: P
                     )}
                   </div>
                 </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
                 <div className="space-y-2">
-                    <Label htmlFor="pricePerNight">{t('properties.pricePerNight')} {formData.dynamicPricingEnabled && `(${t('properties.basePrice')})`}</Label>
+                  <Label htmlFor="weekendMultiplier">Weekend Multiplier (Sabtu Malam & Minggu)</Label>
                   <Input
-                    id="pricePerNight"
+                    id="weekendMultiplier"
                     type="number"
                     step="0.01"
-                    value={formData.pricePerNight}
-                    onChange={(e) => setFormData({ ...formData, pricePerNight: e.target.value })}
-                    placeholder="0.00"
-                      disabled={formData.dynamicPricingEnabled}
+                    min="0.5"
+                    max="5.0"
+                    value={formData.weekendMultiplier}
+                    onChange={(e) => setFormData({ ...formData, weekendMultiplier: e.target.value })}
+                    placeholder="1.5"
                   />
-                    {formData.dynamicPricingEnabled && (
-                      <p className="text-xs text-muted-foreground">
-                        {t('properties.dynamicPricingTip1')}
-                      </p>
-                    )}
+                  <p className="text-xs text-muted-foreground">
+                    Contoh: 1.5 = 50% lebih mahal, 2.0 = 100% lebih mahal (2x harga normal). Kosongkan jika tidak ingin ada multiplier weekend.
+                  </p>
                 </div>
-
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Price per night field removed - pricing is now managed through room units */}
+                
                 <div className="space-y-2">
                   <Label htmlFor="maxGuests">{t('properties.maxGuests')}</Label>
                   <Input
@@ -492,7 +556,34 @@ export function PropertyFormModal({ open, onOpenChange, property, onSuccess }: P
             <div className="space-y-4 pt-4 border-t">
               <h3 className="font-semibold text-lg">{t('properties.imagesSection')}</h3>
               
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleImageUpload}
+                  disabled={uploadingImage}
+                />
+                <Button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  variant="outline"
+                  disabled={uploadingImage}
+                  className="relative z-10"
+                >
+                  {uploadingImage ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Mengunggah...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-4 w-4 mr-2" />
+                      Upload Foto
+                    </>
+                  )}
+                </Button>
                 <Input
                   type="url"
                   placeholder={t('properties.addImageUrl')}
@@ -504,6 +595,7 @@ export function PropertyFormModal({ open, onOpenChange, property, onSuccess }: P
                       addImageUrl()
                     }
                   }}
+                  className="flex-1 min-w-[200px]"
                 />
                 <Button 
                   type="button" 

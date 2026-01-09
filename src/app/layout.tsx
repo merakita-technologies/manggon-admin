@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from 'next/font/google'
 import { ClientLayout } from '@/components/layout/client-layout'
 import { I18nProvider } from '@/contexts/i18n-context'
+import { DensityProvider } from '@/contexts/density-context'
 
 const inter = Inter({ subsets: ['latin'] })
 import "./globals.css";
@@ -59,9 +60,11 @@ export default function RootLayout({
       </head>
       <body className={inter.className}>
         <I18nProvider>
-          <ClientLayout requiredRole="owner">
-            {children}
-          </ClientLayout>
+          <DensityProvider>
+            <ClientLayout requiredRole="owner">
+              {children}
+            </ClientLayout>
+          </DensityProvider>
         </I18nProvider>
       </body>
     </html>

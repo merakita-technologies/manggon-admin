@@ -1,19 +1,20 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import DashboardLayout from '@/components/layout/dashboard-layout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Search, Bell, Loader2, CheckCircle, AlertCircle, Info, Mail, Plus, MoreHorizontal, Edit, Trash2, Eye } from 'lucide-react'
+import { Search, Bell, Loader2, CheckCircle, AlertCircle, Info, Mail, MoreHorizontal, Trash2, Eye } from 'lucide-react'
 import { formatDate, formatRelativeTime } from '@/lib/date-utils'
 import { graphqlClient } from '@/lib/graphql'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { NotificationFormModal } from '@/components/notifications/notification-form-modal'
 import { useI18n } from '@/contexts/i18n-context'
 
 export default function NotificationsPage() {
+  const router = useRouter()
   const { t } = useI18n()
   const [notifications, setNotifications] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -21,8 +22,6 @@ export default function NotificationsPage() {
   const [typeFilter, setTypeFilter] = useState<string>('')
   const [readFilter, setReadFilter] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
-  const [isModalOpen, setIsModalOpen] = useState(false)
-  const [selectedNotification, setSelectedNotification] = useState<any>(null)
 
   useEffect(() => {
     fetchNotifications()
@@ -45,15 +44,6 @@ export default function NotificationsPage() {
     }
   }
 
-  const handleAddNotification = () => {
-    setSelectedNotification(null)
-    setIsModalOpen(true)
-  }
-
-  const handleEditNotification = (notification: any) => {
-    setSelectedNotification(notification)
-    setIsModalOpen(true)
-  }
 
   const handleDeleteNotification = async (notificationId: string) => {
     if (!confirm(t('notifications.deleteConfirm'))) {
@@ -87,6 +77,26 @@ export default function NotificationsPage() {
     }
   }
 
+  const handleNotificationClick = async (notification: any) => {
+    // Mark as read if not already read
+    if (!notification.isRead) {
+      try {
+        await graphqlClient.markNotificationAsRead(notification.id)
+        // Update local state
+        setNotifications(prev => prev.map(n => 
+          n.id === notification.id ? { ...n, isRead: true } : n
+        ))
+      } catch (err) {
+        console.error('Error marking notification as read:', err)
+      }
+    }
+
+    // Navigate to link if exists
+    if (notification.link) {
+      router.push(notification.link)
+    }
+  }
+
   const handleMarkAllAsRead = async () => {
     try {
       const result = await graphqlClient.markAllNotificationsAsRead()
@@ -101,9 +111,6 @@ export default function NotificationsPage() {
     }
   }
 
-  const handleModalSuccess = () => {
-    fetchNotifications()
-  }
 
   const filteredNotifications = notifications.filter((notification) => {
     const matchesSearch = !searchQuery || 
@@ -148,10 +155,6 @@ export default function NotificationsPage() {
                 {t('notifications.markAllAsRead')}
               </Button>
             )}
-            <Button onClick={handleAddNotification}>
-              <Plus className="h-4 w-4 mr-2" />
-              {t('notifications.newNotification')}
-            </Button>
           </div>
         </div>
 
@@ -280,9 +283,10 @@ export default function NotificationsPage() {
                   return (
                     <Card
                       key={notification.id}
-                      className={`hover:bg-muted/50 transition-colors ${
+                      className={`hover:bg-muted/50 transition-colors cursor-pointer ${
                         !notification.isRead ? 'border-primary' : ''
                       }`}
+                      onClick={() => handleNotificationClick(notification)}
                     >
                       <CardContent className="pt-4">
                         <div className="flex items-start gap-4">
@@ -306,24 +310,26 @@ export default function NotificationsPage() {
                                   {formatRelativeTime(notification.createdAt)}
                                 </span>
                                 <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
+                                  <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                                     <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
                                       <MoreHorizontal className="h-4 w-4" />
                                     </Button>
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent align="end">
                                     {!notification.isRead && (
-                                      <DropdownMenuItem onClick={() => handleMarkAsRead(notification.id)}>
+                                      <DropdownMenuItem onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleMarkAsRead(notification.id)
+                                      }}>
                                         <Eye className="h-4 w-4 mr-2" />
                                         {t('notifications.markAsRead')}
                                       </DropdownMenuItem>
                                     )}
-                                    <DropdownMenuItem onClick={() => handleEditNotification(notification)}>
-                                      <Edit className="h-4 w-4 mr-2" />
-                                      {t('notifications.editNotification')}
-                                    </DropdownMenuItem>
                                     <DropdownMenuItem 
-                                      onClick={() => handleDeleteNotification(notification.id)}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleDeleteNotification(notification.id)
+                                      }}
                                       className="text-destructive focus:text-destructive"
                                     >
                                       <Trash2 className="h-4 w-4 mr-2" />
@@ -341,14 +347,9 @@ export default function NotificationsPage() {
                                 {notification.type}
                               </Badge>
                               {notification.link && (
-                                <a 
-                                  href={notification.link} 
-                                  className="text-xs text-primary hover:underline"
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  View Link
-                                </a>
+                                <span className="text-xs text-primary">
+                                  {t('notifications.viewLink') || 'View Details'} →
+                                </span>
                               )}
                             </div>
                             {notification.user && (
@@ -367,14 +368,6 @@ export default function NotificationsPage() {
           </CardContent>
         </Card>
       </div>
-
-      {/* Notification Form Modal */}
-      <NotificationFormModal
-        open={isModalOpen}
-        onOpenChange={setIsModalOpen}
-        notification={selectedNotification}
-        onSuccess={handleModalSuccess}
-      />
     </DashboardLayout>
   )
 }

@@ -1,6 +1,5 @@
 import { GraphQLClient } from 'graphql-request'
-
-const GRAPHQL_ENDPOINT = process.env.NEXT_PUBLIC_GRAPHQL_URL || 'http://localhost:3010/graphql'
+import { GRAPHQL_ENDPOINT } from './api-config'
 
 class GraphQLService {
   private client: GraphQLClient
@@ -41,18 +40,46 @@ class GraphQLService {
       return data
     } catch (error: any) {
       console.error('GraphQL request error:', error)
-      // Handle GraphQL errors
+      
+      // Handle authentication errors (401 - Token expired/invalid)
       if (error.response) {
         const errors = error.response.errors || []
         const errorMessage = errors[0]?.message || error.message || 'Request failed'
+        
+        // Check for token expiration or unauthorized errors
+        if (
+          errorMessage.includes('Token has expired') ||
+          errorMessage.includes('Token expired') ||
+          errorMessage.includes('Invalid token') ||
+          errorMessage.includes('Unauthorized') ||
+          errorMessage.includes('Authentication required') ||
+          error.status === 401 ||
+          error.response?.status === 401
+        ) {
+          // Clear token and user info
+          this.logout()
+          
+          // Redirect to login page (only on client side)
+          if (typeof window !== 'undefined') {
+            // Don't redirect if already on login/register pages
+            const currentPath = window.location.pathname
+            if (!currentPath.startsWith('/auth/')) {
+              window.location.href = '/auth/login'
+            }
+          }
+          
+          throw new Error('Session expired. Please login again.')
+        }
+        
         console.error('GraphQL errors:', errors)
         throw new Error(errorMessage)
       }
+      
       // Handle network errors
       if (error.message) {
         console.error('Network error:', error.message)
         if (error.message.includes('fetch') || error.message.includes('network')) {
-          throw new Error('Tidak dapat terhubung ke server. Pastikan backend berjalan di http://localhost:3010')
+          throw new Error(`Tidak dapat terhubung ke server. Pastikan backend berjalan di ${GRAPHQL_ENDPOINT.replace('/graphql', '')}`)
         }
       }
       throw error
@@ -314,6 +341,7 @@ class GraphQLService {
           checkOutTime
           cancellationPolicy
           dynamicPricingEnabled
+          weekendMultiplier
           isActive
           createdAt
           updatedAt
@@ -332,6 +360,10 @@ class GraphQLService {
             images
             isActive
             supportsHourlyBooking
+            weekendMultiplier
+            holidayMultiplier
+            enableWeekendMultiplier
+            enableHolidayMultiplier
           }
         }
       }
@@ -368,6 +400,7 @@ class GraphQLService {
           checkOutTime
           cancellationPolicy
           dynamicPricingEnabled
+          weekendMultiplier
           isActive
           createdAt
           updatedAt
@@ -386,6 +419,10 @@ class GraphQLService {
             images
             isActive
             supportsHourlyBooking
+            weekendMultiplier
+            holidayMultiplier
+            enableWeekendMultiplier
+            enableHolidayMultiplier
           }
         }
       }
@@ -415,6 +452,7 @@ class GraphQLService {
     checkOutTime?: string
     cancellationPolicy?: string
     dynamicPricingEnabled?: boolean
+    weekendMultiplier?: number
     isActive?: boolean
   }) {
     const mutation = `
@@ -484,6 +522,7 @@ class GraphQLService {
     checkOutTime?: string
     cancellationPolicy?: string
     dynamicPricingEnabled?: boolean
+    weekendMultiplier?: number
     isActive?: boolean
   }) {
     const mutation = `
@@ -580,6 +619,10 @@ class GraphQLService {
     images?: string[]
     isActive?: boolean
     supportsHourlyBooking?: boolean
+    weekendMultiplier?: number
+    holidayMultiplier?: number
+    enableWeekendMultiplier?: boolean
+    enableHolidayMultiplier?: boolean
   }) {
     const mutation = `
       mutation CreateRoomUnit($input: CreateRoomUnitInput!) {
@@ -596,6 +639,10 @@ class GraphQLService {
             images
             isActive
             supportsHourlyBooking
+            weekendMultiplier
+            holidayMultiplier
+            enableWeekendMultiplier
+            enableHolidayMultiplier
           }
         }
       }
@@ -616,6 +663,10 @@ class GraphQLService {
     images?: string[]
     isActive?: boolean
     supportsHourlyBooking?: boolean
+    weekendMultiplier?: number
+    holidayMultiplier?: number
+    enableWeekendMultiplier?: boolean
+    enableHolidayMultiplier?: boolean
   }) {
     const mutation = `
       mutation UpdateRoomUnit($id: String!, $input: UpdateRoomUnitInput!) {
@@ -632,6 +683,10 @@ class GraphQLService {
             images
             isActive
             supportsHourlyBooking
+            weekendMultiplier
+            holidayMultiplier
+            enableWeekendMultiplier
+            enableHolidayMultiplier
           }
         }
       }
@@ -889,6 +944,13 @@ class GraphQLService {
             amount
             status
             paymentMethod
+          }
+          priceBreakdown {
+            date
+            basePrice
+            multiplier
+            finalPrice
+            holidayName
           }
         }
       }
@@ -2346,6 +2408,615 @@ class GraphQLService {
       { id }
     )
     return response.toggleAddonStatus
+  }
+
+  // Chat Queries & Mutations
+  async getConversations() {
+    const query = `
+      query GetConversations {
+        conversations {
+          id
+          propertyId
+          property {
+            id
+            name
+            city
+          }
+          bookingId
+          booking {
+            id
+            status
+            totalPrice
+          }
+          lastMessageAt
+          participants {
+            id
+            userId
+            user {
+              id
+              email
+              fullName
+              phoneNumber
+            }
+            lastReadAt
+            isActive
+          }
+          createdAt
+          updatedAt
+        }
+      }
+    `
+    const response = await this.request<{ conversations: any[] }>(query)
+    return response.conversations
+  }
+
+  async getConversation(id: string) {
+    const query = `
+      query GetConversation($id: String!) {
+        conversation(id: $id) {
+          id
+          propertyId
+          property {
+            id
+            name
+            city
+          }
+          bookingId
+          booking {
+            id
+            status
+            totalPrice
+          }
+          lastMessageAt
+          participants {
+            id
+            userId
+            user {
+              id
+              email
+              fullName
+              phoneNumber
+            }
+            lastReadAt
+            isActive
+          }
+          createdAt
+          updatedAt
+        }
+      }
+    `
+    const response = await this.request<{ conversation: any }>(query, { id })
+    return response.conversation
+  }
+
+  async createConversation(input: { propertyId?: string; bookingId?: string; ownerId: string }) {
+    const mutation = `
+      mutation CreateConversation($input: CreateConversationInput!) {
+        createConversation(input: $input) {
+          id
+          propertyId
+          bookingId
+          lastMessageAt
+          participants {
+            id
+            userId
+            user {
+              id
+              email
+              fullName
+            }
+          }
+          createdAt
+        }
+      }
+    `
+    const response = await this.request<{ createConversation: any }>(mutation, { input })
+    return response.createConversation
+  }
+
+  async getMessages(conversationId: string, limit?: number, offset?: number) {
+    const query = `
+      query GetMessages($conversationId: String!, $limit: Int, $offset: Int) {
+        messages(conversationId: $conversationId, limit: $limit, offset: $offset) {
+          id
+          conversationId
+          senderId
+          sender {
+            id
+            email
+            fullName
+          }
+          content
+          messageType
+          isRead
+          readAt
+          originalPrice
+          proposedPrice
+          offerStatus
+          attachmentUrl
+          attachmentName
+          attachmentSize
+          attachmentMimeType
+          createdAt
+        }
+      }
+    `
+    const response = await this.request<{ messages: any[] }>(query, { conversationId, limit, offset })
+    return response.messages
+  }
+
+  async sendMessage(input: { 
+    conversationId: string
+    content: string
+    messageType?: string
+    originalPrice?: number
+    proposedPrice?: number
+    attachmentUrl?: string
+    attachmentName?: string
+    attachmentSize?: number
+    attachmentMimeType?: string
+  }) {
+    const mutation = `
+      mutation SendMessage($input: CreateMessageInput!) {
+        sendMessage(input: $input) {
+          id
+          conversationId
+          senderId
+          sender {
+            id
+            email
+            fullName
+          }
+          content
+          messageType
+          isRead
+          attachmentUrl
+          attachmentName
+          attachmentSize
+          attachmentMimeType
+          createdAt
+        }
+      }
+    `
+    const response = await this.request<{ sendMessage: any }>(mutation, { input })
+    return response.sendMessage
+  }
+
+  async markConversationAsRead(conversationId: string) {
+    const mutation = `
+      mutation MarkAsRead($input: MarkAsReadInput!) {
+        markConversationAsRead(input: $input)
+      }
+    `
+    const response = await this.request<{ markConversationAsRead: boolean }>(mutation, { input: { conversationId } })
+    return response.markConversationAsRead
+  }
+
+  async getUnreadCount() {
+    const query = `
+      query GetUnreadCount {
+        unreadCount
+      }
+    `
+    const response = await this.request<{ unreadCount: number }>(query)
+    return response.unreadCount
+  }
+
+  // Negotiations Queries & Mutations
+  async getPriceOffers(bookingId?: string, propertyId?: string, status?: string) {
+    const query = `
+      query GetPriceOffers($bookingId: String, $propertyId: String, $status: OfferStatus) {
+        priceOffers(bookingId: $bookingId, propertyId: $propertyId, status: $status) {
+          id
+          bookingId
+          booking {
+            id
+            status
+            totalPrice
+          }
+          propertyId
+          property {
+            id
+            name
+            pricePerNight
+          }
+          conversationId
+          offerType
+          originalPrice
+          proposedPrice
+          proposedBy
+          proposedById
+          proposedByUser {
+            id
+            email
+            fullName
+          }
+          status
+          expiresAt
+          terms
+          acceptedAt
+          rejectedAt
+          rejectionReason
+          previousOfferId
+          createdAt
+          updatedAt
+        }
+      }
+    `
+    const response = await this.request<{ priceOffers: any[] }>(query, { bookingId, propertyId, status })
+    return response.priceOffers
+  }
+
+  async getPriceOffer(id: string) {
+    const query = `
+      query GetPriceOffer($id: String!) {
+        priceOffer(id: $id) {
+          id
+          bookingId
+          propertyId
+          offerType
+          originalPrice
+          proposedPrice
+          proposedBy
+          status
+          expiresAt
+          terms
+          createdAt
+        }
+      }
+    `
+    const response = await this.request<{ priceOffer: any }>(query, { id })
+    return response.priceOffer
+  }
+
+  async createPriceOffer(input: {
+    bookingId?: string
+    propertyId?: string
+    conversationId?: string
+    offerType: string
+    originalPrice: number
+    proposedPrice: number
+    proposedBy: string
+    terms?: string
+    expiresInHours?: number
+    previousOfferId?: string
+  }) {
+    const mutation = `
+      mutation CreatePriceOffer($input: CreatePriceOfferInput!) {
+        createPriceOffer(input: $input) {
+          id
+          bookingId
+          propertyId
+          offerType
+          originalPrice
+          proposedPrice
+          proposedBy
+          status
+          expiresAt
+          terms
+          createdAt
+        }
+      }
+    `
+    const response = await this.request<{ createPriceOffer: any }>(mutation, { input })
+    return response.createPriceOffer
+  }
+
+  async acceptPriceOffer(offerId: string) {
+    const mutation = `
+      mutation AcceptPriceOffer($offerId: String!) {
+        acceptPriceOffer(offerId: $offerId) {
+          id
+          status
+          acceptedAt
+        }
+      }
+    `
+    const response = await this.request<{ acceptPriceOffer: any }>(mutation, { offerId })
+    return response.acceptPriceOffer
+  }
+
+  async rejectPriceOffer(offerId: string, reason?: string) {
+    const mutation = `
+      mutation RejectPriceOffer($input: RejectPriceOfferInput!) {
+        rejectPriceOffer(input: $input) {
+          id
+          status
+          rejectedAt
+          rejectionReason
+        }
+      }
+    `
+    const response = await this.request<{ rejectPriceOffer: any }>(mutation, { input: { offerId, reason } })
+    return response.rejectPriceOffer
+  }
+
+  async cancelPriceOffer(offerId: string) {
+    const mutation = `
+      mutation CancelPriceOffer($offerId: String!) {
+        cancelPriceOffer(offerId: $offerId) {
+          id
+          status
+        }
+      }
+    `
+    const response = await this.request<{ cancelPriceOffer: any }>(mutation, { offerId })
+    return response.cancelPriceOffer
+  }
+
+  async getNegotiationHistory(bookingId?: string, propertyId?: string) {
+    const query = `
+      query GetNegotiationHistory($bookingId: String, $propertyId: String) {
+        negotiationHistory(bookingId: $bookingId, propertyId: $propertyId) {
+          id
+          offerType
+          originalPrice
+          proposedPrice
+          proposedBy
+          status
+          createdAt
+        }
+      }
+    `
+    const response = await this.request<{ negotiationHistory: any[] }>(query, { bookingId, propertyId })
+    return response.negotiationHistory
+  }
+
+  // Holidays Queries & Mutations
+  async getHolidays(isActive?: boolean) {
+    const query = `
+      query GetHolidays($isActive: Boolean) {
+        holidays(isActive: $isActive) {
+          id
+          name
+          description
+          date
+          isRecurring
+          dayOfWeek
+          monthDay
+          priceMultiplier
+          isActive
+          priority
+          createdAt
+          updatedAt
+        }
+      }
+    `
+    const response = await this.request<{ holidays: any[] }>(query, { isActive })
+    return response.holidays
+  }
+
+  async getHoliday(id: string) {
+    const query = `
+      query GetHoliday($id: ID!) {
+        holiday(id: $id) {
+          id
+          name
+          description
+          date
+          isRecurring
+          dayOfWeek
+          monthDay
+          priceMultiplier
+          isActive
+          priority
+          createdAt
+          updatedAt
+        }
+      }
+    `
+    const response = await this.request<{ holiday: any }>(query, { id })
+    return response.holiday
+  }
+
+  async createHoliday(input: {
+    name: string
+    description?: string
+    date?: string
+    isRecurring?: boolean
+    dayOfWeek?: number
+    monthDay?: string
+    priceMultiplier?: number
+    isActive?: boolean
+    priority?: number
+  }) {
+    const mutation = `
+      mutation CreateHoliday($input: CreateHolidayInput!) {
+        createHoliday(input: $input) {
+          id
+          name
+          description
+          date
+          isRecurring
+          dayOfWeek
+          monthDay
+          priceMultiplier
+          isActive
+          priority
+          createdAt
+          updatedAt
+        }
+      }
+    `
+    const response = await this.request<{ createHoliday: any }>(mutation, { input })
+    return response.createHoliday
+  }
+
+  async updateHoliday(id: string, input: {
+    name?: string
+    description?: string
+    date?: string
+    isRecurring?: boolean
+    dayOfWeek?: number
+    monthDay?: string
+    priceMultiplier?: number
+    isActive?: boolean
+    priority?: number
+  }) {
+    const mutation = `
+      mutation UpdateHoliday($id: ID!, $input: UpdateHolidayInput!) {
+        updateHoliday(id: $id, input: $input) {
+          id
+          name
+          description
+          date
+          isRecurring
+          dayOfWeek
+          monthDay
+          priceMultiplier
+          isActive
+          priority
+          createdAt
+          updatedAt
+        }
+      }
+    `
+    const response = await this.request<{ updateHoliday: any }>(mutation, { id, input })
+    return response.updateHoliday
+  }
+
+  async deleteHoliday(id: string) {
+    const mutation = `
+      mutation DeleteHoliday($id: ID!) {
+        deleteHoliday(id: $id)
+      }
+    `
+    const response = await this.request<{ deleteHoliday: boolean }>(mutation, { id })
+    return response.deleteHoliday
+  }
+
+  // Tax Settings Queries & Mutations
+  async getActiveTaxSettings() {
+    const query = `
+      query GetActiveTaxSettings {
+        activeTaxSettings {
+          id
+          serviceFeePercentage
+          vatRate
+          vatEnabled
+          isActive
+          notes
+          effectiveFrom
+          effectiveTo
+          createdAt
+          updatedAt
+        }
+      }
+    `
+    const response = await this.request<{ activeTaxSettings: any }>(query)
+    return response.activeTaxSettings
+  }
+
+  async getAllTaxSettings() {
+    const query = `
+      query GetAllTaxSettings {
+        allTaxSettings {
+          id
+          serviceFeePercentage
+          vatRate
+          vatEnabled
+          isActive
+          notes
+          effectiveFrom
+          effectiveTo
+          createdBy
+          createdAt
+          updatedAt
+        }
+      }
+    `
+    const response = await this.request<{ allTaxSettings: any[] }>(query)
+    return response.allTaxSettings
+  }
+
+  async createTaxSettings(input: {
+    serviceFeePercentage: number
+    vatRate: number
+    vatEnabled?: boolean
+    notes?: string
+    effectiveFrom?: string
+  }) {
+    const mutation = `
+      mutation CreateTaxSettings(
+        $serviceFeePercentage: Float!
+        $vatRate: Float!
+        $vatEnabled: Boolean
+        $notes: String
+        $effectiveFrom: DateTime
+      ) {
+        createTaxSettings(
+          serviceFeePercentage: $serviceFeePercentage
+          vatRate: $vatRate
+          vatEnabled: $vatEnabled
+          notes: $notes
+          effectiveFrom: $effectiveFrom
+        ) {
+          id
+          serviceFeePercentage
+          vatRate
+          vatEnabled
+          isActive
+          notes
+          effectiveFrom
+          createdAt
+        }
+      }
+    `
+    const response = await this.request<{ createTaxSettings: any }>(mutation, input)
+    return response.createTaxSettings
+  }
+
+  async updateTaxSettings(id: string, input: {
+    serviceFeePercentage?: number
+    vatRate?: number
+    vatEnabled?: boolean
+    notes?: string
+    effectiveFrom?: string
+  }) {
+    const mutation = `
+      mutation UpdateTaxSettings(
+        $id: String!
+        $serviceFeePercentage: Float
+        $vatRate: Float
+        $vatEnabled: Boolean
+        $notes: String
+        $effectiveFrom: DateTime
+      ) {
+        updateTaxSettings(
+          id: $id
+          serviceFeePercentage: $serviceFeePercentage
+          vatRate: $vatRate
+          vatEnabled: $vatEnabled
+          notes: $notes
+          effectiveFrom: $effectiveFrom
+        ) {
+          id
+          serviceFeePercentage
+          vatRate
+          vatEnabled
+          isActive
+          notes
+          effectiveFrom
+          updatedAt
+        }
+      }
+    `
+    const response = await this.request<{ updateTaxSettings: any }>(mutation, { id, ...input })
+    return response.updateTaxSettings
+  }
+
+  async activateTaxSettings(id: string) {
+    const mutation = `
+      mutation ActivateTaxSettings($id: String!) {
+        activateTaxSettings(id: $id) {
+          id
+          isActive
+          effectiveFrom
+        }
+      }
+    `
+    const response = await this.request<{ activateTaxSettings: any }>(mutation, { id })
+    return response.activateTaxSettings
   }
 }
 

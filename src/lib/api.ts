@@ -1,8 +1,7 @@
 // Legacy REST API client - kept for backward compatibility
 // New code should use graphqlClient from '@/lib/graphql'
 import { graphqlClient } from './graphql'
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3010/api/v1';
+import { API_BASE_URL } from './api-config'
 
 class ApiClient {
   private baseUrl: string;
@@ -48,6 +47,23 @@ class ApiClient {
     });
 
     if (!response.ok) {
+      // Handle 401 Unauthorized (Token expired)
+      if (response.status === 401) {
+        // Clear token and user info
+        this.logout();
+        graphqlClient.logout();
+        
+        // Redirect to login page (only on client side)
+        if (typeof window !== 'undefined') {
+          const currentPath = window.location.pathname;
+          if (!currentPath.startsWith('/auth/')) {
+            window.location.href = '/auth/login';
+          }
+        }
+        
+        throw new Error('Session expired. Please login again.');
+      }
+      
       const error = await response.json().catch(() => ({
         message: response.statusText,
       }));

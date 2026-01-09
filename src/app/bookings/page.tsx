@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Calendar, User, Building, Search, Loader2, Clock, Moon, MoreHorizontal, Edit, X, CheckCircle } from 'lucide-react'
+import { Plus, Calendar, User, Building, Search, Loader2, Clock, Moon, MoreHorizontal, Edit, X, CheckCircle, Eye } from 'lucide-react'
 import { graphqlClient } from '@/lib/graphql'
 import { formatDate } from '@/lib/date-utils'
 import { formatCurrency } from '@/lib/currency-utils'
@@ -16,6 +16,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { ExportButton } from '@/components/ui/export-button'
 import { DateRangePicker } from '@/components/ui/date-range-picker'
 import { PriceRangeFilter } from '@/components/ui/price-range-filter'
+import { useRouter } from 'next/navigation'
 
 const statusVariants = {
   pending: 'secondary',
@@ -34,6 +35,7 @@ const statusVariants = {
 } as const
 
 export default function BookingsPage() {
+  const router = useRouter()
   const { t } = useI18n()
   const [bookings, setBookings] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -421,6 +423,10 @@ export default function BookingsPage() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => router.push(`/bookings/${booking.id}`)}>
+                                <Eye className="h-4 w-4 mr-2" />
+                                {t('bookings.viewDetails') || 'View Details'}
+                              </DropdownMenuItem>
                               {booking.status === 'pending_owner_approval' && isOwnerOrAdmin && (
                                 <>
                                   <DropdownMenuItem onClick={() => handleApproveBooking(booking.id)}>

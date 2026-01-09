@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
 import DashboardLayout from '@/components/layout/dashboard-layout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,16 +18,21 @@ import {
   Edit,
   Loader2,
   Trash2,
-  Power
+  Power,
+  MessageSquare,
+  LayoutGrid,
+  Table as TableIcon,
+  Eye
 } from 'lucide-react'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { graphqlClient } from '@/lib/graphql'
-import { formatPricePerNight } from '@/lib/currency-utils'
 import { PropertyFormModal } from '@/components/properties/property-form-modal'
 import { useI18n } from '@/contexts/i18n-context'
 import { ExportButton } from '@/components/ui/export-button'
 import { DateRangePicker } from '@/components/ui/date-range-picker'
-import { PriceRangeFilter } from '@/components/ui/price-range-filter'
+import { Breadcrumb } from '@/components/ui/breadcrumb'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { formatCurrency } from '@/lib/currency-utils'
 
 const statusVariants = {
   Active: 'default',
@@ -42,6 +48,7 @@ const typeVariants = {
 } as const
 
 export default function PropertiesPage() {
+  const router = useRouter()
   const { t } = useI18n()
   const [properties, setProperties] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -50,11 +57,10 @@ export default function PropertiesPage() {
   const [filterCity, setFilterCity] = useState<string>('')
   const [filterStartDate, setFilterStartDate] = useState<Date | null>(null)
   const [filterEndDate, setFilterEndDate] = useState<Date | null>(null)
-  const [filterMinPrice, setFilterMinPrice] = useState<number | null>(null)
-  const [filterMaxPrice, setFilterMaxPrice] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [selectedProperty, setSelectedProperty] = useState<any>(null)
+  const [viewMode, setViewMode] = useState<'card' | 'table'>('card')
 
   useEffect(() => {
     fetchProperties()
@@ -71,6 +77,10 @@ export default function PropertiesPage() {
       if (filterCity) params.city = filterCity
 
       const data = await graphqlClient.getProperties(params)
+      console.log('Fetched properties:', data)
+      if (data.length > 0) {
+        console.log('First property owner:', data[0]?.owner)
+      }
       setProperties(data)
     } catch (err: any) {
       setError(err.message || t('common.error'))
@@ -118,22 +128,11 @@ export default function PropertiesPage() {
       })
     }
     
-    // Price range filter
-    if (filterMinPrice !== null) {
-      filtered = filtered.filter((property) => {
-        const price = property.pricePerNight || 0
-        return price >= filterMinPrice!
-      })
-    }
-    if (filterMaxPrice !== null) {
-      filtered = filtered.filter((property) => {
-        const price = property.pricePerNight || 0
-        return price <= filterMaxPrice!
-      })
-    }
+    // Price range filter - removed because pricing is now based on room units
+    // If needed in the future, filter by minimum price from room units
     
     return filtered
-  }, [properties, searchQuery, filterType, filterCity, filterStartDate, filterEndDate, filterMinPrice, filterMaxPrice])
+  }, [properties, searchQuery, filterType, filterCity, filterStartDate, filterEndDate])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -184,6 +183,40 @@ export default function PropertiesPage() {
 
   const handleModalSuccess = () => {
     fetchProperties()
+  }
+
+  const handleChatWithOwner = async (property: any) => {
+    if (!property.owner?.id) {
+      alert(t('chat.noOwner') || 'Property owner not found')
+      return
+    }
+
+    try {
+      // Create or get existing conversation with owner
+      const conversation = await graphqlClient.createConversation({
+        propertyId: property.id,
+        ownerId: property.owner.id,
+      })
+      
+      // Navigate to chat page with conversation ID
+      router.push(`/chat?conversationId=${conversation.id}`)
+    } catch (error: any) {
+      console.error('Error creating conversation:', error)
+      // If conversation already exists, try to find it
+      try {
+        const conversations = await graphqlClient.getConversations()
+        const existingConversation = conversations.find(
+          (conv: any) => conv.propertyId === property.id
+        )
+        if (existingConversation) {
+          router.push(`/chat?conversationId=${existingConversation.id}`)
+        } else {
+          alert(t('chat.createConversationError') || 'Failed to start conversation. Please try again.')
+        }
+      } catch (err) {
+        alert(t('chat.createConversationError') || 'Failed to start conversation. Please try again.')
+      }
+    }
   }
 
   return (
@@ -271,15 +304,6 @@ export default function PropertiesPage() {
                 }}
                 label={t('properties.createdDate')}
               />
-              <PriceRangeFilter
-                minPrice={filterMinPrice}
-                maxPrice={filterMaxPrice}
-                onChange={(min, max) => {
-                  setFilterMinPrice(min)
-                  setFilterMaxPrice(max)
-                }}
-                label={t('properties.priceRange')}
-              />
             </div>
           </CardContent>
         </Card>
@@ -317,7 +341,7 @@ export default function PropertiesPage() {
               </div>
             </CardContent>
           </Card>
-        ) : (
+        ) : viewMode === 'card' ? (
           /* Properties Grid */
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {filteredProperties.map((property) => (
@@ -327,9 +351,143 @@ export default function PropertiesPage() {
                 onEdit={handleEditProperty}
                 onDelete={handleDeleteProperty}
                 onToggleStatus={handleToggleStatus}
+                onChat={handleChatWithOwner}
               />
             ))}
           </div>
+        ) : (
+          /* Properties Table */
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('properties.title')}</CardTitle>
+              <CardDescription>
+                {filteredProperties.length} {t('properties.propertiesFound', { defaultValue: 'properties found' })}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{t('properties.name', { defaultValue: 'Name' })}</TableHead>
+                      <TableHead>{t('properties.type', { defaultValue: 'Type' })}</TableHead>
+                      <TableHead>{t('properties.location', { defaultValue: 'Location' })}</TableHead>
+                      <TableHead>{t('properties.rooms', { defaultValue: 'Rooms' })}</TableHead>
+                      <TableHead>{t('properties.status', { defaultValue: 'Status' })}</TableHead>
+                      <TableHead>{t('common.actions', { defaultValue: 'Actions' })}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredProperties.map((property) => {
+                      const metrics = getPropertyMetrics(property)
+                      return (
+                        <TableRow key={property.id}>
+                          <TableCell className="font-medium">
+                            <div className="flex items-center gap-2">
+                              {property.imageUrls && property.imageUrls.length > 0 && (
+                                <img
+                                  src={property.imageUrls[0]}
+                                  alt={property.name}
+                                  className="h-10 w-10 rounded object-cover"
+                                />
+                              )}
+                              <div>
+                                <div className="font-semibold">{property.name}</div>
+                                {property.rating && (
+                                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                    <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                                    <span>{property.rating.toFixed(1)}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{property.propertyType}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1 text-sm">
+                              <MapPin className="h-3 w-3 text-muted-foreground" />
+                              <span>{property.city}, {property.country}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm">
+                              <div className="font-medium">{metrics.totalRooms} {t('properties.total', { defaultValue: 'total' })}</div>
+                              <div className="text-muted-foreground text-xs">
+                                {metrics.activeRooms} {t('properties.active', { defaultValue: 'active' })}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={property.isActive ? 'default' : 'secondary'}>
+                              {property.isActive ? t('common.active') : t('common.inactive')}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  router.push(`/properties/${property.id}`)
+                                }}
+                                title={t('common.view', { defaultValue: 'View' })}
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleEditProperty(property)}
+                                title={t('common.edit', { defaultValue: 'Edit' })}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleToggleStatus(property)}
+                                title={property.isActive ? t('common.deactivate', { defaultValue: 'Deactivate' }) : t('common.activate', { defaultValue: 'Activate' })}
+                              >
+                                <Power className="h-4 w-4" />
+                              </Button>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="sm">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem onClick={() => router.push(`/rooms?property=${property.id}`)}>
+                                    <Eye className="h-4 w-4 mr-2" />
+                                    {t('properties.viewRooms', { defaultValue: 'View Rooms' })}
+                                  </DropdownMenuItem>
+                                  {property.owner?.id && (
+                                    <DropdownMenuItem onClick={() => handleChatWithOwner(property)}>
+                                      <MessageSquare className="h-4 w-4 mr-2" />
+                                      {t('chat.chatOwner')}
+                                    </DropdownMenuItem>
+                                  )}
+                                  <DropdownMenuItem 
+                                    onClick={() => handleDeleteProperty(property)}
+                                    className="text-destructive focus:text-destructive"
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    {t('common.delete', { defaultValue: 'Delete' })}
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
         )}
       </div>
 
@@ -348,13 +506,17 @@ function PropertyCard({
   property,
   onEdit,
   onDelete,
-  onToggleStatus
+  onToggleStatus,
+  onChat
 }: { 
   property: any
   onEdit: (property: any) => void
   onDelete: (property: any) => void
   onToggleStatus: (property: any) => void
+  onChat: (property: any) => void
 }) {
+  const router = useRouter()
+  const { t } = useI18n()
   const status = property.isActive ? 'Active' : 'Inactive'
   const totalRooms = property.rooms?.length || 0
   const availableRooms = property.rooms?.filter((r: any) => r.isActive).length || 0
@@ -463,9 +625,9 @@ function PropertyCard({
             </div>
           </div>
           <div className="space-y-1">
-            <div className="text-muted-foreground text-xs font-medium">Price</div>
+            <div className="text-muted-foreground text-xs font-medium">Rooms</div>
             <div className="font-semibold text-foreground">
-              {formatPricePerNight(property.pricePerNight)}
+              {totalRooms} total
             </div>
           </div>
           <div className="space-y-1">
@@ -479,17 +641,52 @@ function PropertyCard({
         </div>
       </CardContent>
 
-      <CardFooter className="grid grid-rows-2 gap-4 pt-3 border-t">
-        <div className="flex justify-between text-xs text-muted-foreground">
-          Owner: {property.owner?.fullName || t('common.unknown')}
+      <CardFooter className="flex flex-col gap-3 pt-3 border-t">
+        {/* Primary Actions */}
+        <div className="flex items-center gap-2 w-full">
+          <Button 
+            size="sm" 
+            className="flex-1"
+            onClick={() => {
+              // Navigate to rooms page filtered by this property
+              router.push(`/rooms?property=${property.id}`)
+            }}
+          >
+            <Eye className="h-4 w-4 mr-2" />
+            {t('properties.viewRooms', { defaultValue: 'Lihat Kamar' })}
+          </Button>
+          <Button 
+            size="sm" 
+            variant="outline"
+            onClick={() => onEdit(property)}
+          >
+            <Edit className="h-4 w-4 mr-2" />
+            {t('common.edit', { defaultValue: 'Kelola' })}
+          </Button>
         </div>
-        <div className="flex items-center gap-2">
-          {property.dynamicPricingEnabled && (
-            <Badge variant="default" className="text-xs">
-              Dynamic Pricing
-            </Badge>
-          )}
-          <Button size="sm">Manage</Button>
+        {/* Secondary Actions */}
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-muted-foreground">
+            {t('properties.owner', { defaultValue: 'Owner' })}: {property.owner?.fullName || t('common.unknown')}
+          </span>
+          <div className="flex items-center gap-2">
+            {property.dynamicPricingEnabled && (
+              <Badge variant="default" className="text-xs">
+                {t('properties.dynamicPricing', { defaultValue: 'Dynamic Pricing' })}
+              </Badge>
+            )}
+            {property.owner?.id && (
+              <Button 
+                size="sm" 
+                variant="ghost"
+                onClick={() => onChat(property)}
+                className="h-6 px-2"
+                title={t('chat.chatOwner')}
+              >
+                <MessageSquare className="h-3 w-3" />
+              </Button>
+            )}
+          </div>
         </div>
       </CardFooter>
     </Card>

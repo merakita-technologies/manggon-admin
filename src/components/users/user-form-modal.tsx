@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { graphqlClient } from '@/lib/graphql'
+import { BACKEND_BASE_URL } from '@/lib/api-config'
 import { Loader2, AlertCircle, Eye, EyeOff } from 'lucide-react'
 import { useI18n } from '@/contexts/i18n-context'
 
@@ -135,7 +136,7 @@ export function UserFormModal({ open, onOpenChange, user, onSuccess }: UserFormM
         } catch (graphqlError: any) {
           // If GraphQL fails, try REST API
           console.log('GraphQL update failed, trying REST API:', graphqlError)
-          const response = await fetch(`http://localhost:3010/users/${user.id}`, {
+          const response = await fetch(`${BACKEND_BASE_URL}/users/${user.id}`, {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
@@ -166,7 +167,7 @@ export function UserFormModal({ open, onOpenChange, user, onSuccess }: UserFormM
           // Update additional fields via REST API if needed
           if (formData.loyaltyPoints > 0 || !formData.isActive || formData.emailVerified) {
             try {
-              await fetch(`http://localhost:3010/users/${result.user.id}`, {
+              await fetch(`${BACKEND_BASE_URL}/users/${result.user.id}`, {
                 method: 'PUT',
                 headers: {
                   'Content-Type': 'application/json',
@@ -209,7 +210,7 @@ export function UserFormModal({ open, onOpenChange, user, onSuccess }: UserFormM
           </div>
         </ModalHeader>
 
-        <ModalContent className="flex-1 overflow-y-auto">
+        <ModalContent className="flex-1 overflow-y-auto min-h-0">
           {error && (
             <div className="mb-4 flex items-center gap-2 p-3 text-sm text-destructive bg-destructive/10 rounded-md border border-destructive/20">
               <AlertCircle className="h-4 w-4" />
