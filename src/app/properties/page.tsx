@@ -27,6 +27,7 @@ import {
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { graphqlClient } from '@/lib/graphql'
 import { PropertyFormModal } from '@/components/properties/property-form-modal'
+import { PropertyCardRedesigned } from '@/components/properties/property-card-redesigned'
 import { useI18n } from '@/contexts/i18n-context'
 import { ExportButton } from '@/components/ui/export-button'
 import { DateRangePicker } from '@/components/ui/date-range-picker'
@@ -342,10 +343,10 @@ export default function PropertiesPage() {
             </CardContent>
           </Card>
         ) : viewMode === 'card' ? (
-          /* Properties Grid */
+          /* Properties Grid - Redesigned */
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {filteredProperties.map((property) => (
-              <PropertyCard 
+              <PropertyCardRedesigned 
                 key={property.id} 
                 property={property}
                 onEdit={handleEditProperty}
@@ -500,6 +501,13 @@ export default function PropertiesPage() {
       />
     </DashboardLayout>
   )
+}
+
+// Helper function for table view
+function getPropertyMetrics(property: any) {
+  const totalRooms = property.rooms?.length || 0
+  const activeRooms = property.rooms?.filter((r: any) => r.isActive).length || 0
+  return { totalRooms, activeRooms }
 }
 
 function PropertyCard({ 

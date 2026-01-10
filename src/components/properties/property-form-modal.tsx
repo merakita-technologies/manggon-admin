@@ -10,6 +10,21 @@ import { graphqlClient } from '@/lib/graphql'
 import { Loader2, AlertCircle, X, Upload, Image as ImageIcon } from 'lucide-react'
 import { useI18n } from '@/contexts/i18n-context'
 import { BACKEND_BASE_URL } from '@/lib/api-config'
+import { parseGoogleMapsUrl, isGoogleMapsUrl } from '@/lib/google-maps-utils'
+import dynamic from 'next/dynamic'
+
+// Dynamic import untuk LocationPicker (disable SSR)
+const LocationPicker = dynamic(() => import('./location-picker').then(mod => ({ default: mod.LocationPicker })), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-96 flex items-center justify-center bg-muted rounded-lg">
+      <div className="text-center">
+        <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2" />
+        <p className="text-sm text-muted-foreground">Memuat peta...</p>
+      </div>
+    </div>
+  ),
+})
 
 interface PropertyFormModalProps {
   open: boolean
@@ -40,17 +55,31 @@ export function PropertyFormModal({ open, onOpenChange, property, onSuccess }: P
     checkInTime: '14:00',
     checkOutTime: '12:00',
     cancellationPolicy: '',
-    dynamicPricingEnabled: false,
-    weekendMultiplier: '',
     isActive: true,
   })
   const [amenityInput, setAmenityInput] = useState('')
   const [imageUrlInput, setImageUrlInput] = useState('')
   const [uploadingImage, setUploadingImage] = useState(false)
+  const [googleMapsLink, setGoogleMapsLink] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (property) {
+      // Format placeId as Google Maps link if exists
+      let googleLink = ''
+      if (property.placeId) {
+        // If it's already a URL, use it directly
+        if (property.placeId.startsWith('http')) {
+          googleLink = property.placeId
+        } else if (property.placeId.startsWith('ChIJ')) {
+          // Full Place ID
+          googleLink = `https://www.google.com/maps/place/?q=place_id:${property.placeId}`
+        } else {
+          // Short link ID or other format
+          googleLink = `https://maps.app.goo.gl/${property.placeId}`
+        }
+      }
+      
       setFormData({
         name: property.name || '',
         address: property.address || '',
@@ -69,10 +98,9 @@ export function PropertyFormModal({ open, onOpenChange, property, onSuccess }: P
         checkInTime: property.checkInTime || '14:00',
         checkOutTime: property.checkOutTime || '12:00',
         cancellationPolicy: property.cancellationPolicy || '',
-        dynamicPricingEnabled: property.dynamicPricingEnabled || false,
-        weekendMultiplier: property.weekendMultiplier?.toString() || '',
         isActive: property.isActive !== undefined ? property.isActive : true,
       })
+      setGoogleMapsLink(googleLink)
     } else {
       // Reset form for new property
       setFormData({
@@ -93,13 +121,56 @@ export function PropertyFormModal({ open, onOpenChange, property, onSuccess }: P
         checkInTime: '14:00',
         checkOutTime: '12:00',
         cancellationPolicy: '',
-        dynamicPricingEnabled: false,
-        weekendMultiplier: '',
         isActive: true,
       })
+      setGoogleMapsLink('')
     }
     setError(null)
   }, [property, open])
+
+  const handleGoogleMapsLinkChange = (link: string) => {
+    setGoogleMapsLink(link)
+    
+    if (!link.trim()) {
+      // Clear placeId if link is empty
+      setFormData({ ...formData, placeId: '' })
+      return
+    }
+    
+    // Parse Google Maps URL
+    const parsed = parseGoogleMapsUrl(link)
+    
+    if (parsed) {
+      // Update placeId if found (store full URL for short links, or Place ID for full IDs)
+      if (parsed.placeId) {
+        // If it's a short link URL, store the full URL
+        // If it's a Place ID (ChIJ...), store just the ID
+        const placeIdToStore = link.includes('maps.app.goo.gl') || link.includes('goo.gl/maps')
+          ? link // Store full URL for short links
+          : parsed.placeId // Store Place ID for full IDs
+        setFormData({ ...formData, placeId: placeIdToStore })
+      }
+      
+      // Update coordinates if found
+      if (parsed.latitude && parsed.longitude) {
+        setFormData({
+          ...formData,
+          latitude: parsed.latitude.toString(),
+          longitude: parsed.longitude.toString(),
+        })
+      }
+      
+      // Update address if found
+      if (parsed.address && !formData.address) {
+        setFormData({ ...formData, address: parsed.address })
+      }
+    } else {
+      // If parsing fails but it looks like a Google Maps URL, store it anyway
+      if (isGoogleMapsUrl(link)) {
+        setFormData({ ...formData, placeId: link })
+      }
+    }
+  }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -107,27 +178,72 @@ export function PropertyFormModal({ open, onOpenChange, property, onSuccess }: P
     setIsLoading(true)
 
     try {
-      const input = {
+      // Only include location fields if they are valid
+      // For updates: only include if location has actually changed
+      // For new properties: always include if valid
+      let latitude: number | undefined
+      let longitude: number | undefined
+      
+      if (formData.latitude && formData.longitude) {
+        const parsedLat = parseFloat(formData.latitude)
+        const parsedLng = parseFloat(formData.longitude)
+        
+        // Validate coordinates
+        if (!isNaN(parsedLat) && !isNaN(parsedLng) &&
+            parsedLat >= -90 && parsedLat <= 90 &&
+            parsedLng >= -180 && parsedLng <= 180) {
+          
+          // For updates: check if location actually changed
+          if (property) {
+            const currentLat = property.latitude ? parseFloat(property.latitude.toString()) : null
+            const currentLng = property.longitude ? parseFloat(property.longitude.toString()) : null
+            
+            // Only include if coordinates actually changed
+            const locationChanged = (
+              currentLat === null || currentLng === null ||
+              Math.abs(currentLat - parsedLat) > 0.000001 ||
+              Math.abs(currentLng - parsedLng) > 0.000001
+            )
+            
+            if (locationChanged) {
+              latitude = parsedLat
+              longitude = parsedLng
+            }
+            // If location hasn't changed, don't send latitude/longitude (undefined)
+          } else {
+            // For new properties, always include valid coordinates
+            latitude = parsedLat
+            longitude = parsedLng
+          }
+        }
+      }
+
+      // Build input object, excluding undefined fields
+      const input: any = {
         name: formData.name,
         address: formData.address,
         city: formData.city,
         country: formData.country,
-        description: formData.description || undefined,
         propertyType: formData.propertyType,
-        imageUrls: formData.imageUrls.length > 0 ? formData.imageUrls : undefined,
-        placeId: formData.placeId || undefined,
-        amenities: formData.amenities.length > 0 ? formData.amenities : undefined,
-        maxGuests: formData.maxGuests ? parseInt(formData.maxGuests) : undefined,
-        bedrooms: formData.bedrooms ? parseInt(formData.bedrooms) : undefined,
-        bathrooms: formData.bathrooms ? parseInt(formData.bathrooms) : undefined,
-        latitude: formData.latitude ? parseFloat(formData.latitude) : undefined,
-        longitude: formData.longitude ? parseFloat(formData.longitude) : undefined,
-        checkInTime: formData.checkInTime || undefined,
-        checkOutTime: formData.checkOutTime || undefined,
-        cancellationPolicy: formData.cancellationPolicy || undefined,
-        dynamicPricingEnabled: formData.dynamicPricingEnabled,
-        weekendMultiplier: formData.weekendMultiplier ? parseFloat(formData.weekendMultiplier) : undefined,
         isActive: formData.isActive,
+      }
+      
+      // Only add optional fields if they have values
+      if (formData.description) input.description = formData.description
+      if (formData.imageUrls.length > 0) input.imageUrls = formData.imageUrls
+      if (formData.placeId) input.placeId = formData.placeId
+      if (formData.amenities.length > 0) input.amenities = formData.amenities
+      if (formData.maxGuests) input.maxGuests = parseInt(formData.maxGuests)
+      if (formData.bedrooms) input.bedrooms = parseInt(formData.bedrooms)
+      if (formData.bathrooms) input.bathrooms = parseInt(formData.bathrooms)
+      if (formData.checkInTime) input.checkInTime = formData.checkInTime
+      if (formData.checkOutTime) input.checkOutTime = formData.checkOutTime
+      if (formData.cancellationPolicy) input.cancellationPolicy = formData.cancellationPolicy
+      
+      // Only include location fields if they are valid and changed (for updates) or provided (for new properties)
+      if (latitude !== undefined && longitude !== undefined) {
+        input.latitude = latitude
+        input.longitude = longitude
       }
 
       let result
@@ -141,7 +257,17 @@ export function PropertyFormModal({ open, onOpenChange, property, onSuccess }: P
         onSuccess?.()
         onOpenChange(false)
       } else {
-        setError(result.message || t('properties.saveSuccess'))
+        // Check if it's a pending location change request error
+        let errorMessage = result.message || t('properties.saveError')
+        
+        // Map specific error messages to localized versions
+        if (result.message?.includes('pending location change request')) {
+          errorMessage = t('properties.pendingLocationChangeRequest')
+        }
+        
+        setError(errorMessage)
+        // Show alert for better visibility
+        alert(errorMessage)
       }
     } catch (err: any) {
       console.error('Error saving property:', err)
@@ -343,60 +469,9 @@ export function PropertyFormModal({ open, onOpenChange, property, onSuccess }: P
               </div>
             </div>
 
-            {/* Pricing & Details */}
+            {/* Details */}
             <div className="space-y-4 pt-4 border-t">
-              <h3 className="font-semibold text-lg">{t('properties.pricingDetails')}</h3>
-              
-              <div className="space-y-4">
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="dynamicPricingEnabled"
-                      checked={formData.dynamicPricingEnabled}
-                      onChange={(e) => setFormData({ ...formData, dynamicPricingEnabled: e.target.checked })}
-                      className="h-4 w-4 rounded border-input"
-                    />
-                    <Label htmlFor="dynamicPricingEnabled" className="text-sm font-medium cursor-pointer">
-                      {t('properties.enableDynamicPricing')}
-                    </Label>
-                  </div>
-                  <div className="ml-6 space-y-2">
-                    <p className="text-xs text-muted-foreground">
-                      {t('properties.dynamicPricingDescription')}
-                    </p>
-                    {formData.dynamicPricingEnabled && (
-                      <div className="p-3 bg-blue-50 dark:bg-blue-950/20 rounded-md border border-blue-200 dark:border-blue-800">
-                        <p className="text-xs text-blue-900 dark:text-blue-100 font-medium mb-1">
-                          {t('properties.dynamicPricingInfo')}
-                        </p>
-                        <ul className="text-xs text-blue-800 dark:text-blue-200 space-y-1 list-disc list-inside">
-                          <li>{t('properties.dynamicPricingTip1')}</li>
-                          <li>{t('properties.dynamicPricingTip2')}</li>
-                          <li>{t('properties.dynamicPricingTip3')}</li>
-                          <li>{t('properties.dynamicPricingTip4')}</li>
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="weekendMultiplier">Weekend Multiplier (Sabtu Malam & Minggu)</Label>
-                  <Input
-                    id="weekendMultiplier"
-                    type="number"
-                    step="0.01"
-                    min="0.5"
-                    max="5.0"
-                    value={formData.weekendMultiplier}
-                    onChange={(e) => setFormData({ ...formData, weekendMultiplier: e.target.value })}
-                    placeholder="1.5"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Contoh: 1.5 = 50% lebih mahal, 2.0 = 100% lebih mahal (2x harga normal). Kosongkan jika tidak ingin ada multiplier weekend.
-                  </p>
-                </div>
+              <h3 className="font-semibold text-lg">Detail Properti</h3>
               
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* Price per night field removed - pricing is now managed through room units */}
@@ -461,7 +536,6 @@ export function PropertyFormModal({ open, onOpenChange, property, onSuccess }: P
                   rows={3}
                   placeholder={t('properties.cancellationPolicy')}
                 />
-                </div>
               </div>
             </div>
 
@@ -469,39 +543,51 @@ export function PropertyFormModal({ open, onOpenChange, property, onSuccess }: P
             <div className="space-y-4 pt-4 border-t">
               <h3 className="font-semibold text-lg">Lokasi</h3>
               
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="latitude">Latitude</Label>
-                  <Input
-                    id="latitude"
-                    type="number"
-                    step="any"
-                    value={formData.latitude}
-                    onChange={(e) => setFormData({ ...formData, latitude: e.target.value })}
-                    placeholder="-6.2088"
-                  />
-                </div>
+              <LocationPicker
+                latitude={formData.latitude}
+                longitude={formData.longitude}
+                onLocationChange={(lat, lng) => {
+                  setFormData({
+                    ...formData,
+                    latitude: lat.toString(),
+                    longitude: lng.toString(),
+                  })
+                }}
+              />
 
-                <div className="space-y-2">
-                  <Label htmlFor="longitude">Longitude</Label>
-                  <Input
-                    id="longitude"
-                    type="number"
-                    step="any"
-                    value={formData.longitude}
-                    onChange={(e) => setFormData({ ...formData, longitude: e.target.value })}
-                    placeholder="106.8456"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="placeId">Place ID (Google Maps)</Label>
-                  <Input
-                    id="placeId"
-                    value={formData.placeId}
-                    onChange={(e) => setFormData({ ...formData, placeId: e.target.value })}
-                  />
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="googleMapsLink">Link Google Maps</Label>
+                <Input
+                  id="googleMapsLink"
+                  type="url"
+                  value={googleMapsLink}
+                  onChange={(e) => handleGoogleMapsLinkChange(e.target.value)}
+                  placeholder="https://maps.app.goo.gl/xxxxx atau https://www.google.com/maps/place/..."
+                />
+                <p className="text-xs text-muted-foreground">
+                  Paste link Google Maps (short link seperti maps.app.goo.gl atau full link). Sistem akan otomatis mengambil Place ID dan koordinat.
+                </p>
+                {googleMapsLink && !isGoogleMapsUrl(googleMapsLink) && (
+                  <p className="text-xs text-amber-600 flex items-center gap-1">
+                    <span>⚠️</span>
+                    <span>Format link tidak dikenali. Pastikan menggunakan link Google Maps yang valid.</span>
+                  </p>
+                )}
+                {formData.placeId && (
+                  <div className="mt-2 p-2 bg-muted rounded text-xs space-y-1">
+                    <div className="font-medium">Informasi yang ditemukan:</div>
+                    {formData.placeId && (
+                      <div>
+                        Place ID: <code className="text-xs bg-background px-1 py-0.5 rounded">{formData.placeId}</code>
+                      </div>
+                    )}
+                    {formData.latitude && formData.longitude && (
+                      <div>
+                        Koordinat: {formData.latitude}, {formData.longitude}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
